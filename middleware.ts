@@ -4,6 +4,7 @@ const PUBLIC_PATHS = [
   "/marcar",
   "/login",
   "/api/marcar",
+  "/api/public-booking",
   "/api/uploadthing",
   "/_next",
   "/favicon.ico",

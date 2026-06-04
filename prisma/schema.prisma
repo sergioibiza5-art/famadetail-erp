@@ -128,7 +128,8 @@ model ServiceTemplate {
   price           Float
   durationMinutes Int
 
-  isActive Boolean @default(true)
+  isActive              Boolean @default(true)
+  publicBookingEnabled  Boolean @default(true)
 
   appointments Appointment[]
 

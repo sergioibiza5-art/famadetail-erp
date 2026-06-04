@@ -1,7 +1,7 @@
 "use client"
 
-import { FormEvent, useEffect, useState } from "react"
-import { CalendarDays, CheckCircle, Clock, Loader2 } from "lucide-react"
+import { FormEvent, useEffect, useMemo, useState } from "react"
+import { AlertTriangle, CalendarDays, CheckCircle, Clock, Loader2 } from "lucide-react"
 
 type Service = {
   id: string
@@ -11,6 +11,9 @@ type Service = {
 type Slot = {
   value: string
   label: string
+  readyAt: string
+  readyLabel: string
+  spansMultipleDays: boolean
 }
 
 type Props = {
@@ -27,7 +30,9 @@ function getToday() {
 }
 
 export function PublicBookingForm({ services, pickupEnabled }: Props) {
-  const [serviceId, setServiceId] = useState(services[0]?.id || "")
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(
+    services[0]?.id ? [services[0].id] : []
+  )
   const [date, setDate] = useState(getToday())
   const [slots, setSlots] = useState<Slot[]>([])
   const [slot, setSlot] = useState("")
@@ -36,8 +41,15 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
   const [message, setMessage] = useState("")
   const [needsPickup, setNeedsPickup] = useState("NO")
 
+  const selectedSlot = useMemo(
+    () => slots.find((availableSlot) => availableSlot.value === slot),
+    [slot, slots]
+  )
+
   useEffect(() => {
-    if (!serviceId || !date) return
+    if (selectedServiceIds.length === 0 || !date) {
+      return
+    }
 
     let ignore = false
 
@@ -47,10 +59,11 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       setMessage("")
 
       try {
-        const params = new URLSearchParams({
-          serviceTemplateId: serviceId,
-          date,
-        })
+        const params = new URLSearchParams({ date })
+        selectedServiceIds.forEach((id) =>
+          params.append("serviceTemplateIds", id)
+        )
+
         const response = await fetch(`/api/public-booking/availability?${params}`)
         const data = await response.json()
 
@@ -69,7 +82,20 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
     return () => {
       ignore = true
     }
-  }, [serviceId, date])
+  }, [selectedServiceIds, date])
+
+  function toggleService(serviceId: string) {
+    const next = selectedServiceIds.includes(serviceId)
+      ? selectedServiceIds.filter((id) => id !== serviceId)
+      : [...selectedServiceIds, serviceId]
+
+    if (next.length === 0) {
+      setSlots([])
+      setSlot("")
+    }
+
+    setSelectedServiceIds(next)
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -78,8 +104,9 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
 
     const form = event.currentTarget
     const formData = new FormData(form)
-    formData.set("serviceTemplateId", serviceId)
     formData.set("dateTime", slot)
+    formData.delete("serviceTemplateIds")
+    selectedServiceIds.forEach((id) => formData.append("serviceTemplateIds", id))
 
     try {
       const response = await fetch("/api/public-booking", {
@@ -96,6 +123,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       form.reset()
       setNeedsPickup("NO")
       setSlot("")
+      setSelectedServiceIds(services[0]?.id ? [services[0].id] : [])
       setMessage("Pedido enviado. A FamaDetail vai confirmar a sua marcacao.")
     } finally {
       setSubmitting(false)
@@ -115,34 +143,48 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
           <div>
             <h2 className="text-lg font-semibold">Pedido de marcacao</h2>
             <p className="text-sm text-zinc-400">
-              Escolha o servico e um horario disponivel
+              Escolha um ou varios servicos e um horario disponivel
             </p>
           </div>
         </div>
       </div>
 
       <div className="space-y-4 p-4 sm:p-5">
-        <label className="block">
-          <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Servico
-          </span>
-          <select
-            value={serviceId}
-            onChange={(event) => setServiceId(event.target.value)}
-            required
-            className="w-full rounded-2xl border border-white/10 bg-[#121214] px-4 py-3 text-sm text-white outline-none focus:border-red-400"
-          >
-            {services.map((service) => (
-              <option
-                key={service.id}
-                value={service.id}
-                className="bg-[#121214] text-white"
-              >
-                {service.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div>
+          <div className="mb-2 flex items-center justify-between gap-3">
+            <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Servicos
+            </label>
+            <span className="text-xs text-zinc-500">
+              {selectedServiceIds.length} selecionado(s)
+            </span>
+          </div>
+
+          <div className="grid gap-2">
+            {services.map((service) => {
+              const checked = selectedServiceIds.includes(service.id)
+
+              return (
+                <label
+                  key={service.id}
+                  className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
+                    checked
+                      ? "border-zinc-100 bg-zinc-100 text-black"
+                      : "border-white/10 bg-[#121214] text-white hover:border-white/20"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleService(service.id)}
+                    className="h-4 w-4 accent-red-400"
+                  />
+                  <span className="font-semibold">{service.name}</span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
 
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -161,7 +203,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Horario
+              Horario de entrada
             </label>
             {loadingSlots && (
               <span className="flex items-center gap-2 text-xs text-zinc-500">
@@ -189,13 +231,37 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
             ))}
           </div>
 
-          {!loadingSlots && slots.length === 0 && (
+          {!loadingSlots && selectedServiceIds.length === 0 && (
             <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
-              Sem horarios livres para este dia. Escolha outro dia ou outro
-              servico.
+              Selecione pelo menos um servico para ver horarios.
+            </p>
+          )}
+
+          {!loadingSlots && selectedServiceIds.length > 0 && slots.length === 0 && (
+            <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
+              Sem horarios livres para este dia. Escolha outro dia ou ajuste os
+              servicos.
             </p>
           )}
         </div>
+
+        {selectedSlot && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+            <p className="text-sm font-semibold text-white">
+              Previsao de conclusao: {selectedSlot.readyLabel}
+            </p>
+
+            {selectedSlot.spansMultipleDays && (
+              <div className="mt-3 flex gap-3 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-3 text-sm text-amber-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p>
+                  Este pedido pode demorar mais de 1 dia para ficar pronto,
+                  porque continua no proximo horario disponivel.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <label className="block">
@@ -335,7 +401,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
         </label>
 
         <button
-          disabled={!slot || submitting}
+          disabled={!slot || selectedServiceIds.length === 0 || submitting}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-bold text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           {submitting ? (

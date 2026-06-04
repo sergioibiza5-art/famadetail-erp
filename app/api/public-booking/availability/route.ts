@@ -1,15 +1,12 @@
 import { NextResponse } from "next/server"
+import {
+  formatReadyDate,
+  getTotalServiceMinutes,
+  hasBusyOverlap,
+  planBookingWork,
+} from "@/lib/booking-schedule"
 import { prisma } from "@/lib/prisma"
 import { getAppSettings, getDaySchedule } from "@/lib/settings"
-
-function overlaps(
-  startA: Date,
-  endA: Date,
-  startB: Date,
-  endB: Date
-) {
-  return startA < endB && endA > startB
-}
 
 function formatSlot(date: Date) {
   return new Intl.DateTimeFormat("pt-PT", {
@@ -18,47 +15,79 @@ function formatSlot(date: Date) {
   }).format(date)
 }
 
+function getRequestedServiceIds(searchParams: URLSearchParams) {
+  const ids = [
+    ...searchParams.getAll("serviceTemplateIds"),
+    ...searchParams.getAll("serviceTemplateId"),
+    ...(searchParams.get("serviceTemplateIds") || "").split(","),
+  ]
+
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
-  const serviceTemplateId = searchParams.get("serviceTemplateId") || ""
+  const serviceIds = getRequestedServiceIds(searchParams)
   const date = searchParams.get("date") || ""
 
   const settings = await getAppSettings()
 
-  if (!settings.bookingEnabled || !serviceTemplateId || !date) {
+  if (!settings.bookingEnabled || serviceIds.length === 0 || !date) {
     return NextResponse.json({ slots: [] })
   }
 
-  const service = await prisma.serviceTemplate.findUnique({
+  const services = await prisma.serviceTemplate.findMany({
     where: {
-      id: serviceTemplateId,
+      id: {
+        in: serviceIds,
+      },
+      isActive: true,
+      publicBookingEnabled: true,
+    },
+    select: {
+      id: true,
+      durationMinutes: true,
     },
   })
 
-  if (!service || !service.isActive) {
+  if (services.length !== serviceIds.length) {
     return NextResponse.json({ slots: [] })
   }
 
+  const orderedServices = serviceIds
+    .map((id) => services.find((service) => service.id === id))
+    .filter((service): service is (typeof services)[number] => Boolean(service))
+
+  const totalMinutes = getTotalServiceMinutes(orderedServices)
   const dayStart = new Date(`${date}T00:00:00`)
-  const dayEnd = new Date(`${date}T23:59:59`)
   const schedule = getDaySchedule(settings, dayStart)
   const open = new Date(`${date}T${schedule.openTime}:00`)
   const close = new Date(`${date}T${schedule.closeTime}:00`)
   const now = new Date()
 
-  if (!schedule.enabled) {
+  if (!schedule.enabled || totalMinutes <= 0) {
     return NextResponse.json({ slots: [] })
   }
 
+  const horizon = new Date(dayStart.getTime() + 90 * 24 * 60 * 60 * 1000)
   const appointments = await prisma.appointment.findMany({
     where: {
       status: {
         notIn: ["COMPLETED", "CANCELLED"],
       },
       date: {
-        gte: dayStart,
-        lte: dayEnd,
+        lt: horizon,
       },
+      OR: [
+        {
+          endDate: {
+            gt: dayStart,
+          },
+        },
+        {
+          endDate: null,
+        },
+      ],
     },
     select: {
       date: true,
@@ -66,34 +95,34 @@ export async function GET(request: Request) {
     },
   })
 
+  const busyIntervals = appointments.map((appointment) => ({
+    start: appointment.date,
+    end:
+      appointment.endDate ||
+      new Date(appointment.date.getTime() + settings.slotStepMinutes * 60000),
+  }))
+
   const slots = []
 
   for (
     let cursor = new Date(open);
-    cursor.getTime() + service.durationMinutes * 60 * 1000 <= close.getTime();
-    cursor = new Date(cursor.getTime() + settings.slotStepMinutes * 60 * 1000)
+    cursor < close;
+    cursor = new Date(cursor.getTime() + settings.slotStepMinutes * 60000)
   ) {
     const slotStart = new Date(cursor)
-    const slotEnd = new Date(
-      slotStart.getTime() + service.durationMinutes * 60 * 1000
-    )
-
     if (slotStart <= now) continue
 
-    const busy = appointments.some((appointment) => {
-      const appointmentEnd =
-        appointment.endDate ||
-        new Date(appointment.date.getTime() + 30 * 60 * 1000)
+    const plan = planBookingWork(settings, slotStart, totalMinutes)
+    if (!plan) continue
+    if (hasBusyOverlap(plan, busyIntervals)) continue
 
-      return overlaps(slotStart, slotEnd, appointment.date, appointmentEnd)
+    slots.push({
+      value: slotStart.toISOString(),
+      label: formatSlot(slotStart),
+      readyAt: plan.end.toISOString(),
+      readyLabel: formatReadyDate(plan.end),
+      spansMultipleDays: plan.spansMultipleDays,
     })
-
-    if (!busy) {
-      slots.push({
-        value: slotStart.toISOString(),
-        label: formatSlot(slotStart),
-      })
-    }
   }
 
   return NextResponse.json({ slots })

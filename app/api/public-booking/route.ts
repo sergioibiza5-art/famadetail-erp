@@ -1,19 +1,22 @@
+import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
+import {
+  getTotalServiceMinutes,
+  hasBusyOverlap,
+  planBookingWork,
+} from "@/lib/booking-schedule"
 import { prisma } from "@/lib/prisma"
-import { getAppSettings, getDaySchedule } from "@/lib/settings"
+import { getAppSettings } from "@/lib/settings"
 
-function dateAtTime(date: Date, time: string) {
-  const [hours, minutes] = time.split(":").map(Number)
+function getRequestedServiceIds(formData: FormData) {
+  const ids = [
+    ...formData.getAll("serviceTemplateIds").map(String),
+    ...formData.getAll("serviceTemplateId").map(String),
+    String(formData.get("serviceTemplateIds") || "").split(","),
+  ].flat()
 
-  return new Date(
-    date.getFullYear(),
-    date.getMonth(),
-    date.getDate(),
-    hours,
-    minutes,
-    0
-  )
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))]
 }
 
 export async function POST(request: Request) {
@@ -32,19 +35,27 @@ export async function POST(request: Request) {
 
   const formData = await request.formData()
 
-  const serviceTemplateId = String(formData.get("serviceTemplateId") || "")
+  const serviceIds = getRequestedServiceIds(formData)
   const dateTime = String(formData.get("dateTime") || "")
-  const name = String(formData.get("name") || "")
-  const phone = String(formData.get("phone") || "")
-  const email = String(formData.get("email") || "")
-  const brand = String(formData.get("brand") || "")
-  const model = String(formData.get("model") || "")
-  const plate = String(formData.get("plate") || "").toUpperCase()
+  const name = String(formData.get("name") || "").trim()
+  const phone = String(formData.get("phone") || "").trim()
+  const email = String(formData.get("email") || "").trim()
+  const brand = String(formData.get("brand") || "").trim()
+  const model = String(formData.get("model") || "").trim()
+  const plate = String(formData.get("plate") || "").trim().toUpperCase()
   const needsPickup = String(formData.get("needsPickup") || "NO")
-  const pickupAddress = String(formData.get("pickupAddress") || "")
-  const notes = String(formData.get("notes") || "")
+  const pickupAddress = String(formData.get("pickupAddress") || "").trim()
+  const notes = String(formData.get("notes") || "").trim()
 
-  if (!serviceTemplateId || !dateTime || !name || !phone || !brand || !model || !plate) {
+  if (
+    serviceIds.length === 0 ||
+    !dateTime ||
+    !name ||
+    !phone ||
+    !brand ||
+    !model ||
+    !plate
+  ) {
     return NextResponse.json(
       {
         error: "Preencha os campos obrigatorios.",
@@ -55,16 +66,20 @@ export async function POST(request: Request) {
     )
   }
 
-  const service = await prisma.serviceTemplate.findUnique({
+  const services = await prisma.serviceTemplate.findMany({
     where: {
-      id: serviceTemplateId,
+      id: {
+        in: serviceIds,
+      },
+      isActive: true,
+      publicBookingEnabled: true,
     },
   })
 
-  if (!service || !service.isActive) {
+  if (services.length !== serviceIds.length) {
     return NextResponse.json(
       {
-        error: "Servico indisponivel.",
+        error: "Um dos servicos selecionados nao esta disponivel.",
       },
       {
         status: 400,
@@ -83,27 +98,15 @@ export async function POST(request: Request) {
     )
   }
 
+  const orderedServices = serviceIds
+    .map((id) => services.find((service) => service.id === id))
+    .filter((service): service is (typeof services)[number] => Boolean(service))
+
   const startDate = new Date(dateTime)
-  const endDate = new Date(
-    startDate.getTime() + service.durationMinutes * 60 * 1000
-  )
-  const schedule = getDaySchedule(settings, startDate)
+  const totalMinutes = getTotalServiceMinutes(orderedServices)
+  const plan = planBookingWork(settings, startDate, totalMinutes)
 
-  if (!schedule.enabled) {
-    return NextResponse.json(
-      {
-        error: "Dia indisponivel para marcacao.",
-      },
-      {
-        status: 400,
-      }
-    )
-  }
-
-  const open = dateAtTime(startDate, schedule.openTime)
-  const close = dateAtTime(startDate, schedule.closeTime)
-
-  if (startDate < open || endDate > close) {
+  if (!plan) {
     return NextResponse.json(
       {
         error: "Horario fora da faixa disponivel.",
@@ -114,18 +117,18 @@ export async function POST(request: Request) {
     )
   }
 
-  const overlap = await prisma.appointment.findFirst({
+  const appointments = await prisma.appointment.findMany({
     where: {
       status: {
         notIn: ["COMPLETED", "CANCELLED"],
       },
       date: {
-        lt: endDate,
+        lt: plan.end,
       },
       OR: [
         {
           endDate: {
-            gt: startDate,
+            gt: plan.start,
           },
         },
         {
@@ -133,9 +136,20 @@ export async function POST(request: Request) {
         },
       ],
     },
+    select: {
+      date: true,
+      endDate: true,
+    },
   })
 
-  if (overlap) {
+  const busyIntervals = appointments.map((appointment) => ({
+    start: appointment.date,
+    end:
+      appointment.endDate ||
+      new Date(appointment.date.getTime() + settings.slotStepMinutes * 60000),
+  }))
+
+  if (hasBusyOverlap(plan, busyIntervals)) {
     return NextResponse.json(
       {
         error: "Este horario acabou de ficar indisponivel.",
@@ -177,8 +191,13 @@ export async function POST(request: Request) {
       },
     }))
 
+  const serviceNames = orderedServices.map((service) => service.name).join(", ")
   const appointmentNotes = [
     "Pedido criado pela pagina publica.",
+    `Servicos pedidos: ${serviceNames}.`,
+    plan.spansMultipleDays
+      ? "Aviso mostrado ao cliente: este pedido pode demorar mais de 1 dia de trabalho."
+      : "",
     needsPickup === "YES"
       ? `Levantamento e entrega ao domicilio: SIM. Morada: ${pickupAddress}`
       : "Levantamento e entrega ao domicilio: NAO.",
@@ -187,18 +206,37 @@ export async function POST(request: Request) {
     .filter(Boolean)
     .join("\n")
 
-  await prisma.appointment.create({
-    data: {
-      title: service.name,
-      date: startDate,
-      endDate,
-      status: "PENDING",
-      notes: appointmentNotes,
-      customerId: customer.id,
-      vehicleId: vehicle.id,
-      serviceTemplateId: service.id,
-    },
-  })
+  const groupId = orderedServices.length > 1 ? randomUUID() : null
+  let cursor = new Date(startDate)
+
+  await prisma.$transaction(
+    orderedServices.map((service, index) => {
+      const servicePlan = planBookingWork(settings, cursor, service.durationMinutes, {
+        allowMoveToNextWindow: index > 0,
+      })
+      if (!servicePlan) {
+        throw new Error("Nao foi possivel calcular a duracao do servico.")
+      }
+
+      cursor = servicePlan.end
+
+      return prisma.appointment.create({
+        data: {
+          title: service.name,
+          date: servicePlan.start,
+          endDate: servicePlan.end,
+          status: "PENDING",
+          notes: appointmentNotes,
+          customerId: customer.id,
+          vehicleId: vehicle.id,
+          serviceTemplateId: service.id,
+          groupId,
+          serviceIndex: index + 1,
+          serviceTotal: orderedServices.length,
+        },
+      })
+    })
+  )
 
   revalidatePath("/agenda")
   revalidatePath("/dashboard")

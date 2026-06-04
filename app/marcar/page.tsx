@@ -9,7 +9,10 @@ export default async function PublicBookingPage() {
   const settings = await getAppSettings()
 
   const services = await prisma.serviceTemplate.findMany({
-    where: { isActive: true },
+    where: {
+      isActive: true,
+      publicBookingEnabled: true,
+    },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   })

@@ -19,6 +19,7 @@ async function updateSettings(formData: FormData) {
 
   const businessName = String(formData.get("businessName") || "FamaDetail").trim()
   const slotStepMinutes = Number(formData.get("slotStepMinutes") || 30)
+  const publicServiceIds = formData.getAll("publicServiceIds").map(String)
 
   const dayData = {
     monday: formData.get("monday") === "on",
@@ -67,17 +68,42 @@ async function updateSettings(formData: FormData) {
     },
   })
 
+  await prisma.$transaction([
+    prisma.serviceTemplate.updateMany({
+      data: {
+        publicBookingEnabled: false,
+      },
+    }),
+    prisma.serviceTemplate.updateMany({
+      where: {
+        id: {
+          in: publicServiceIds,
+        },
+      },
+      data: {
+        publicBookingEnabled: true,
+      },
+    }),
+  ])
+
   revalidatePath("/settings")
   revalidatePath("/marcar")
   revalidatePath("/api/public-booking/availability")
 }
 
 export default async function SettingsPage() {
-  const settings = await prisma.appSettings.upsert({
-    where: { id: "default" },
-    update: {},
-    create: { id: "default" },
-  })
+  const [settings, services] = await Promise.all([
+    prisma.appSettings.upsert({
+      where: { id: "default" },
+      update: {},
+      create: { id: "default" },
+    }),
+    prisma.serviceTemplate.findMany({
+      orderBy: {
+        name: "asc",
+      },
+    }),
+  ])
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -157,64 +183,105 @@ export default async function SettingsPage() {
           </button>
         </div>
 
-        <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-          <div className="border-b border-white/10 p-4 sm:p-5">
-            <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
-                <Clock className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Horarios por dia</h2>
-                <p className="text-sm text-zinc-400">
-                  Semana e fim de semana podem ser diferentes
+        <div className="space-y-4">
+          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
+            <div className="border-b border-white/10 p-4 sm:p-5">
+              <h2 className="text-lg font-semibold">Servicos no /marcar</h2>
+              <p className="text-sm text-zinc-400">
+                Escolhe os servicos que os clientes podem pedir online
+              </p>
+            </div>
+
+            <div className="grid gap-2 p-4 sm:grid-cols-2">
+              {services.length === 0 ? (
+                <p className="text-sm text-zinc-500">
+                  Ainda nao existem servicos criados.
                 </p>
-              </div>
+              ) : (
+                services.map((service) => (
+                  <label
+                    key={service.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold"
+                  >
+                    <span>
+                      <span className="block text-white">{service.name}</span>
+                      <span className="text-xs text-zinc-500">
+                        {service.isActive ? "Ativo" : "Inativo"}
+                      </span>
+                    </span>
+                    <input
+                      name="publicServiceIds"
+                      type="checkbox"
+                      value={service.id}
+                      defaultChecked={service.publicBookingEnabled}
+                      disabled={!service.isActive}
+                      className="h-5 w-5 accent-red-300 disabled:opacity-40"
+                    />
+                  </label>
+                ))
+              )}
             </div>
           </div>
 
-          <div className="divide-y divide-white/10">
-            {days.map((day) => {
-              const enabled = settings[day.key]
-              const openKey = `${day.key}OpenTime` as const
-              const closeKey = `${day.key}CloseTime` as const
-
-              return (
-                <div
-                  key={day.key}
-                  className="grid gap-3 p-4 sm:grid-cols-[160px_1fr_1fr]"
-                >
-                  <label className="flex items-center gap-3 text-sm font-semibold">
-                    <input
-                      name={day.key}
-                      type="checkbox"
-                      defaultChecked={enabled}
-                      className="h-5 w-5 accent-red-300"
-                    />
-                    {day.label}
-                  </label>
-
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                    Abertura
-                    <input
-                      name={openKey}
-                      type="time"
-                      defaultValue={settings[openKey]}
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                    />
-                  </label>
-
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                    Fecho
-                    <input
-                      name={closeKey}
-                      type="time"
-                      defaultValue={settings[closeKey]}
-                      className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                    />
-                  </label>
+          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
+            <div className="border-b border-white/10 p-4 sm:p-5">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
+                  <Clock className="h-5 w-5" />
                 </div>
-              )
-            })}
+                <div>
+                  <h2 className="text-lg font-semibold">Horarios por dia</h2>
+                  <p className="text-sm text-zinc-400">
+                    Semana e fim de semana podem ser diferentes
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="divide-y divide-white/10">
+              {days.map((day) => {
+                const enabled = settings[day.key]
+                const openKey = `${day.key}OpenTime` as const
+                const closeKey = `${day.key}CloseTime` as const
+
+                return (
+                  <div
+                    key={day.key}
+                    className="grid gap-3 p-4 sm:grid-cols-[160px_1fr_1fr]"
+                  >
+                    <label className="flex items-center gap-3 text-sm font-semibold">
+                      <input
+                        name={day.key}
+                        type="checkbox"
+                        defaultChecked={enabled}
+                        className="h-5 w-5 accent-red-300"
+                      />
+                      {day.label}
+                    </label>
+
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                      Abertura
+                      <input
+                        name={openKey}
+                        type="time"
+                        defaultValue={settings[openKey]}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                      />
+                    </label>
+
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                      Fecho
+                      <input
+                        name={closeKey}
+                        type="time"
+                        defaultValue={settings[closeKey]}
+                        className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                      />
+                    </label>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
       </form>
