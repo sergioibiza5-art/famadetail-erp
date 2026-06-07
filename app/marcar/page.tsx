@@ -41,25 +41,8 @@ export default async function PublicBookingPage() {
           </h1>
 
           <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-300 sm:text-base sm:leading-7">
-            Escolha o servico, selecione um horario livre e envie o pedido. A
-            equipa confirma antes da marcacao ficar definitiva.
+            Escolha o servico, selecione um horario livre e envie o pedido.
           </p>
-
-          <div className="mt-5 grid gap-3 sm:grid-cols-3 lg:grid-cols-1">
-            {[
-              ["Horarios reais", "So aparecem horarios disponiveis."],
-              ["Pedido pendente", "Recebe confirmacao depois de ser revisto."],
-              ["Sem precos visiveis", "O pedido mostra apenas servico e horario."],
-            ].map(([title, text]) => (
-              <div
-                key={title}
-                className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
-              >
-                <p className="text-sm font-semibold text-white">{title}</p>
-                <p className="mt-1 text-sm text-zinc-400">{text}</p>
-              </div>
-            ))}
-          </div>
         </section>
 
         {!settings.bookingEnabled ? (

@@ -59,7 +59,7 @@ export default async function DashboardPage() {
     customerCount,
     vehicleCount,
     customerRequests,
-    activeAppointments,
+    activeAppointmentCandidates,
     completedAppointments,
     completedMetrics,
   ] = await Promise.all([
@@ -80,17 +80,11 @@ export default async function DashboardPage() {
       orderBy: {
         date: "asc",
       },
-      take: 5,
     }),
     prisma.appointment.findMany({
       where: {
         status: {
-          in: ["PENDING", "CONFIRMED", "IN_PROGRESS"],
-        },
-        NOT: {
-          notes: {
-            contains: "Pedido criado pela pagina publica.",
-          },
+          notIn: ["COMPLETED", "CANCELLED"],
         },
       },
       include: {
@@ -101,7 +95,6 @@ export default async function DashboardPage() {
       orderBy: {
         date: "asc",
       },
-      take: 5,
     }),
     prisma.appointment.findMany({
       where: {
@@ -132,6 +125,13 @@ export default async function DashboardPage() {
       },
     }),
   ])
+
+  const customerRequestIds = new Set(
+    customerRequests.map((appointment) => appointment.id)
+  )
+  const activeAppointments = activeAppointmentCandidates
+    .filter((appointment) => !customerRequestIds.has(appointment.id))
+    .slice(0, 5)
 
   const paidRevenue = completedMetrics.reduce(
     (sum, appointment) =>

@@ -124,7 +124,10 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       setNeedsPickup("NO")
       setSlot("")
       setSelectedServiceIds(services[0]?.id ? [services[0].id] : [])
-      setMessage("Pedido enviado. A FamaDetail vai confirmar a sua marcacao.")
+      setMessage(
+        data.message ||
+          "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no telemovel indicado ou por email se nao tiver telemovel."
+      )
     } finally {
       setSubmitting(false)
     }
@@ -278,12 +281,11 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
 
           <label className="block">
             <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Telefone
+              Telemovel
             </span>
             <input
               name="phone"
-              placeholder="Telefone"
-              required
+              placeholder="Telemovel"
               className="w-full rounded-2xl border border-white/10 bg-[#121214] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-red-400"
             />
           </label>
@@ -291,15 +293,19 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
 
         <label className="block">
           <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            Email opcional
+            Email
           </span>
           <input
             name="email"
             type="email"
-            placeholder="Email opcional"
+            placeholder="Email se nao indicar telemovel"
             className="w-full rounded-2xl border border-white/10 bg-[#121214] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-red-400"
           />
         </label>
+
+        <p className="text-xs text-zinc-500">
+          Indique pelo menos um contacto para receber a confirmacao.
+        </p>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block">

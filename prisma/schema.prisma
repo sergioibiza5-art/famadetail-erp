@@ -19,6 +19,12 @@ enum PaymentMethod {
   MBWAY
 }
 
+enum WorkerAccount {
+  JOAO
+  ADRIANA
+  FAMADETAIL
+}
+
 enum ExpenseCategory {
   PRODUCTS
   MATERIAL
@@ -165,9 +171,42 @@ model Appointment {
   serviceTemplate   ServiceTemplate? @relation(fields: [serviceTemplateId], references: [id])
 
   photos VehiclePhoto[]
+  workers AppointmentWorker[]
+  financialSplits FinancialSplit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model AppointmentWorker {
+  id String @id @default(cuid())
+
+  worker WorkerAccount
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([appointmentId, worker])
+}
+
+model FinancialSplit {
+  id String @id @default(cuid())
+
+  account WorkerAccount
+  amount  Float
+
+  isPaid Boolean @default(false)
+  paidAt DateTime?
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([appointmentId, account])
 }
 
 model Service {

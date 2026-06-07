@@ -8,6 +8,7 @@ import {
   CalendarDays,
   LayoutDashboard,
   Package,
+  WalletCards,
   Settings,
   Users,
   Wrench,
@@ -49,6 +50,11 @@ const links = [
     href: "/analytics",
     icon: BarChart3,
     label: "Stats",
+  },
+  {
+    href: "/financeiro",
+    icon: WalletCards,
+    label: "Financas",
   },
   {
     href: "/settings",

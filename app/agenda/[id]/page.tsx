@@ -1,7 +1,7 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { AppointmentStatus, PaymentMethod } from "@prisma/client"
+import { AppointmentStatus, PaymentMethod, WorkerAccount } from "@prisma/client"
 import {
   ArrowLeft,
   CalendarDays,
@@ -11,6 +11,7 @@ import {
   Euro,
   Save,
   User,
+  Users,
 } from "lucide-react"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
@@ -66,6 +67,19 @@ function methodLabel(method: PaymentMethod | null) {
   return "Sem metodo"
 }
 
+function workerLabel(worker: WorkerAccount) {
+  switch (worker) {
+    case "JOAO":
+      return "Sérgio"
+    case "ADRIANA":
+      return "Adriana"
+    case "FAMADETAIL":
+      return "FamaDetail"
+    default:
+      return worker
+  }
+}
+
 export default async function AppointmentDetailPage({ params }: Props) {
   const { id } = await params
 
@@ -75,6 +89,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
       customer: true,
       vehicle: true,
       serviceTemplate: true,
+      workers: true,
+      financialSplits: true,
       photos: {
         orderBy: { createdAt: "desc" },
       },
@@ -83,10 +99,15 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   if (!appointment) notFound()
 
+  const appointmentGroupId = appointment.groupId
   const groupedAppointments = appointment.groupId
     ? await prisma.appointment.findMany({
         where: { groupId: appointment.groupId },
-        include: { serviceTemplate: true },
+        include: {
+          serviceTemplate: true,
+          workers: true,
+          financialSplits: true,
+        },
         orderBy: { date: "asc" },
       })
     : [appointment]
@@ -131,12 +152,120 @@ export default async function AppointmentDetailPage({ params }: Props) {
     revalidatePath("/dashboard")
   }
 
+  async function updateWorkersAndFinance(formData: FormData) {
+    "use server"
+
+    const selectedWorkers = formData
+      .getAll("workers")
+      .map(String)
+      .filter((worker): worker is WorkerAccount =>
+        ["JOAO", "ADRIANA"].includes(worker)
+      )
+
+    const workerAccounts =
+      selectedWorkers.length > 0 ? selectedWorkers : [WorkerAccount.JOAO]
+    const splitAccounts = [...workerAccounts, WorkerAccount.FAMADETAIL]
+
+    const targetAppointments = await prisma.appointment.findMany({
+      where: appointmentGroupId ? { groupId: appointmentGroupId } : { id },
+      include: {
+        serviceTemplate: true,
+        financialSplits: true,
+      },
+    })
+
+    await prisma.$transaction(
+      targetAppointments.flatMap((item) => {
+        const price = item.serviceTemplate?.price || 0
+        const amount = price / splitAccounts.length
+
+        return [
+          prisma.appointmentWorker.deleteMany({
+            where: { appointmentId: item.id },
+          }),
+          prisma.financialSplit.deleteMany({
+            where: {
+              appointmentId: item.id,
+              account: {
+                notIn: splitAccounts,
+              },
+            },
+          }),
+          ...workerAccounts.map((worker) =>
+            prisma.appointmentWorker.upsert({
+              where: {
+                appointmentId_worker: {
+                  appointmentId: item.id,
+                  worker,
+                },
+              },
+              update: {},
+              create: {
+                appointmentId: item.id,
+                worker,
+              },
+            })
+          ),
+          ...splitAccounts.map((account) => {
+            const existing = item.financialSplits.find(
+              (split) => split.account === account
+            )
+
+            return prisma.financialSplit.upsert({
+              where: {
+                appointmentId_account: {
+                  appointmentId: item.id,
+                  account,
+                },
+              },
+              update: {
+                amount,
+                isPaid: existing?.isPaid || false,
+                paidAt: existing?.paidAt || null,
+              },
+              create: {
+                appointmentId: item.id,
+                account,
+                amount,
+              },
+            })
+          }),
+        ]
+      })
+    )
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+  }
+
   const beforePhotos = appointment.photos.filter((photo) => photo.type === "BEFORE")
   const afterPhotos = appointment.photos.filter((photo) => photo.type === "AFTER")
   const totalPrice = groupedAppointments.reduce(
     (sum, item) => sum + (item.serviceTemplate?.price || 0),
     0
   )
+  const selectedWorkers = new Set(
+    groupedAppointments.flatMap((item) =>
+      item.workers.map((worker) => worker.worker)
+    )
+  )
+  const financeSplits = groupedAppointments.flatMap((item) =>
+    item.financialSplits.map((split) => ({
+      ...split,
+      appointmentTitle: item.title,
+    }))
+  )
+  const financeByAccount = Object.values(WorkerAccount).map((account) => ({
+    account,
+    amount: financeSplits
+      .filter((split) => split.account === account)
+      .reduce((sum, split) => sum + split.amount, 0),
+    pending: financeSplits
+      .filter((split) => split.account === account && !split.isPaid)
+      .reduce((sum, split) => sum + split.amount, 0),
+  }))
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -285,6 +414,67 @@ export default async function AppointmentDetailPage({ params }: Props) {
             <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
               <Save className="h-4 w-4" />
               Guardar pagamento
+            </button>
+          </form>
+
+          <form
+            action={updateWorkersAndFinance}
+            className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
+                <Users className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Trabalhadores</h2>
+                <p className="text-sm text-zinc-400">Define a divisao financeira</p>
+              </div>
+            </div>
+
+            <div className="grid gap-3">
+              {[WorkerAccount.JOAO, WorkerAccount.ADRIANA].map((worker) => (
+                <label
+                  key={worker}
+                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold"
+                >
+                  <input
+                    name="workers"
+                    type="checkbox"
+                    value={worker}
+                    defaultChecked={
+                      selectedWorkers.size === 0
+                        ? worker === WorkerAccount.JOAO
+                        : selectedWorkers.has(worker)
+                    }
+                    className="h-4 w-4 accent-red-300"
+                  />
+                  {workerLabel(worker)}
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {financeByAccount.map((split) => (
+                <div
+                  key={split.account}
+                  className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
+                >
+                  <span className="font-semibold">{workerLabel(split.account)}</span>
+                  <span className="text-right">
+                    <span className="block font-semibold text-white">
+                      {formatMoney(split.amount)}
+                    </span>
+                    <span className="text-xs text-zinc-500">
+                      {formatMoney(split.pending)} por pagar
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
+              <Save className="h-4 w-4" />
+              Guardar trabalhadores
             </button>
           </form>
         </div>

@@ -51,14 +51,14 @@ export async function POST(request: Request) {
     serviceIds.length === 0 ||
     !dateTime ||
     !name ||
-    !phone ||
+    (!phone && !email) ||
     !brand ||
     !model ||
     !plate
   ) {
     return NextResponse.json(
       {
-        error: "Preencha os campos obrigatorios.",
+        error: "Preencha os campos obrigatorios e indique telemovel ou email.",
       },
       {
         status: 400,
@@ -163,13 +163,13 @@ export async function POST(request: Request) {
   const customer =
     (await prisma.customer.findFirst({
       where: {
-        OR: [{ phone }, ...(email ? [{ email }] : [])],
+        OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])],
       },
     })) ||
     (await prisma.customer.create({
       data: {
         name,
-        phone,
+        phone: phone || null,
         email: email || null,
       },
     }))
@@ -243,5 +243,7 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     success: true,
+    message:
+      "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no telemovel indicado ou por email se nao tiver telemovel.",
   })
 }

@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation"
 
 import { Sidebar } from "./sidebar"
 import { MobileNav } from "./mobile-nav"
+import { PublicBookingNotifier } from "@/components/public-booking-notifier"
 
 type Props = {
   children: ReactNode
@@ -59,6 +60,7 @@ export function DashboardLayout({
       </div>
 
       <MobileNav />
+      <PublicBookingNotifier />
     </div>
   )
 }
