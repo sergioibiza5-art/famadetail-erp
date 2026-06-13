@@ -2,7 +2,7 @@ import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { CalendarDays, Euro, User, WalletCards } from "lucide-react"
 import { WorkerAccount } from "@prisma/client"
-import { getPaidAmount } from "@/lib/finance"
+import { getPaidAmount, payWorkerAccount } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -31,78 +31,12 @@ async function payAccount(formData: FormData) {
   "use server"
 
   const account = String(formData.get("account") || "") as WorkerAccount
-  const amountValue = String(formData.get("amount") || "").replace(",", ".")
+  const amountValue = String(formData.get("amount") || "")
   const payAll = String(formData.get("payAll") || "") === "on"
 
   if (!Object.values(WorkerAccount).includes(account)) return
 
-  const splits = await prisma.financialSplit.findMany({
-    where: { account },
-    include: {
-      appointment: {
-        select: {
-          date: true,
-        },
-      },
-    },
-    orderBy: {
-      appointment: {
-        date: "asc",
-      },
-    },
-  })
-
-  const pendingTotal = splits.reduce((sum, split) => {
-    const paidAmount = getPaidAmount(split)
-    return sum + Math.max(0, split.amount - paidAmount)
-  }, 0)
-
-  const parsedAmount = amountValue ? Number(amountValue) : 0
-  let remainingPayment = payAll
-    ? pendingTotal
-    : Number.isFinite(parsedAmount) && parsedAmount > 0
-      ? parsedAmount
-      : 0
-
-  if (remainingPayment <= 0) return
-
-  for (const split of splits) {
-    if (remainingPayment <= 0) break
-
-    const paidAmount = getPaidAmount(split)
-    const missingAmount = Math.max(0, split.amount - paidAmount)
-
-    if (missingAmount <= 0) continue
-
-    const amountToApply = Math.min(missingAmount, remainingPayment)
-    const nextPaidAmount = paidAmount + amountToApply
-
-    await prisma.financialSplit.update({
-      where: { id: split.id },
-      data: {
-        paidAmount: nextPaidAmount,
-        isPaid: nextPaidAmount >= split.amount,
-        paidAt: nextPaidAmount >= split.amount ? new Date() : null,
-      },
-    })
-
-    remainingPayment -= amountToApply
-  }
-
-  if (remainingPayment > 0 && splits.length > 0) {
-    const targetSplit = splits[splits.length - 1]
-    const paidAmount = getPaidAmount(targetSplit)
-    const nextPaidAmount = paidAmount + remainingPayment
-
-    await prisma.financialSplit.update({
-      where: { id: targetSplit.id },
-      data: {
-        paidAmount: nextPaidAmount,
-        isPaid: true,
-        paidAt: new Date(),
-      },
-    })
-  }
+  await payWorkerAccount({ account, amountValue, payAll })
 
   revalidatePath("/financeiro")
   revalidatePath("/dashboard")
@@ -111,6 +45,20 @@ async function payAccount(formData: FormData) {
 
 export default async function FinancePage() {
   const splits = await prisma.financialSplit.findMany({
+    where: {
+      OR: [
+        {
+          amount: {
+            gt: 0,
+          },
+        },
+        {
+          paidAmount: {
+            gt: 0,
+          },
+        },
+      ],
+    },
     include: {
       appointment: {
         include: {

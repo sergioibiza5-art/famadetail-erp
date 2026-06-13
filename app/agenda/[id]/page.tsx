@@ -17,6 +17,7 @@ import {
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
+import { redistributeAccountCredit } from "@/lib/finance"
 import { quietly, sendVehicleReadyEmail } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 
@@ -270,6 +271,12 @@ export default async function AppointmentDetailPage({ params }: Props) {
           }),
         ]
       })
+    )
+
+    await Promise.all(
+      Object.values(WorkerAccount).map((account) =>
+        redistributeAccountCredit(account)
+      )
     )
 
     revalidatePath("/agenda")
