@@ -117,6 +117,7 @@ model FinancialSplit {
   id            String        @id @default(cuid())
   account       WorkerAccount
   amount        Float
+  percentage    Float         @default(0)
   isPaid        Boolean       @default(false)
   paidAt        DateTime?
   appointmentId String

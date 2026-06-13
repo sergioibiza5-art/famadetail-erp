@@ -83,6 +83,32 @@ function workerLabel(worker: WorkerAccount) {
   }
 }
 
+function getSplitPaidAmount(split: { paidAmount: number; isPaid: boolean; amount: number }) {
+  return split.paidAmount || (split.isPaid ? split.amount : 0)
+}
+
+function getSplitPercentage({
+  account,
+  splits,
+  total,
+}: {
+  account: WorkerAccount
+  splits: Array<{ account: WorkerAccount; amount: number; percentage: number }>
+  total: number
+}) {
+  const split = splits.find((item) => item.account === account)
+  if (!split) {
+    if (account === WorkerAccount.JOAO) return 50
+    if (account === WorkerAccount.FAMADETAIL) return 50
+    return 0
+  }
+
+  if (split.percentage > 0) return split.percentage
+  if (total <= 0) return 0
+
+  return (split.amount / total) * 100
+}
+
 export default async function AppointmentDetailPage({ params }: Props) {
   const { id } = await params
 
@@ -157,16 +183,30 @@ export default async function AppointmentDetailPage({ params }: Props) {
   async function updateWorkersAndFinance(formData: FormData) {
     "use server"
 
-    const selectedWorkers = formData
-      .getAll("workers")
-      .map(String)
-      .filter((worker): worker is WorkerAccount =>
-        ["JOAO", "ADRIANA"].includes(worker)
-      )
+    const percentages = Object.values(WorkerAccount).map((account) => {
+      const value = String(formData.get(`percentage_${account}`) || "0").replace(",", ".")
+      const percentage = Number(value)
 
-    const workerAccounts =
-      selectedWorkers.length > 0 ? selectedWorkers : [WorkerAccount.JOAO]
-    const splitAccounts = [...workerAccounts, WorkerAccount.FAMADETAIL]
+      return {
+        account,
+        percentage: Number.isFinite(percentage) ? Math.max(0, percentage) : 0,
+      }
+    })
+
+    const totalPercentage = percentages.reduce(
+      (sum, item) => sum + item.percentage,
+      0
+    )
+
+    if (Math.abs(totalPercentage - 100) > 0.01) return
+
+    const workerAccounts = percentages
+      .filter(
+        (item) =>
+          item.account !== WorkerAccount.FAMADETAIL &&
+          item.percentage > 0
+      )
+      .map((item) => item.account)
 
     const targetAppointments = await prisma.appointment.findMany({
       where: appointmentGroupId ? { groupId: appointmentGroupId } : { id },
@@ -179,19 +219,10 @@ export default async function AppointmentDetailPage({ params }: Props) {
     await prisma.$transaction(
       targetAppointments.flatMap((item) => {
         const price = item.serviceTemplate?.price || 0
-        const amount = price / splitAccounts.length
 
         return [
           prisma.appointmentWorker.deleteMany({
             where: { appointmentId: item.id },
-          }),
-          prisma.financialSplit.deleteMany({
-            where: {
-              appointmentId: item.id,
-              account: {
-                notIn: splitAccounts,
-              },
-            },
           }),
           ...workerAccounts.map((worker) =>
             prisma.appointmentWorker.upsert({
@@ -208,10 +239,12 @@ export default async function AppointmentDetailPage({ params }: Props) {
               },
             })
           ),
-          ...splitAccounts.map((account) => {
+          ...percentages.map(({ account, percentage }) => {
             const existing = item.financialSplits.find(
               (split) => split.account === account
             )
+            const amount = (price * percentage) / 100
+            const paidAmount = existing ? getSplitPaidAmount(existing) : 0
 
             return prisma.financialSplit.upsert({
               where: {
@@ -222,16 +255,16 @@ export default async function AppointmentDetailPage({ params }: Props) {
               },
               update: {
                 amount,
-                paidAmount:
-                  existing?.paidAmount ||
-                  (existing?.isPaid ? existing.amount : 0),
-                isPaid: existing?.isPaid || false,
-                paidAt: existing?.paidAt || null,
+                percentage,
+                paidAmount,
+                isPaid: paidAmount >= amount,
+                paidAt: paidAmount >= amount && amount > 0 ? new Date() : null,
               },
               create: {
                 appointmentId: item.id,
                 account,
                 amount,
+                percentage,
               },
             })
           }),
@@ -270,11 +303,6 @@ export default async function AppointmentDetailPage({ params }: Props) {
     (sum, item) => sum + (item.serviceTemplate?.price || 0),
     0
   )
-  const selectedWorkers = new Set(
-    groupedAppointments.flatMap((item) =>
-      item.workers.map((worker) => worker.worker)
-    )
-  )
   const financeSplits = groupedAppointments.flatMap((item) =>
     item.financialSplits.map((split) => ({
       ...split,
@@ -283,13 +311,22 @@ export default async function AppointmentDetailPage({ params }: Props) {
   )
   const financeByAccount = Object.values(WorkerAccount).map((account) => ({
     account,
+    percentage: getSplitPercentage({
+      account,
+      splits: financeSplits,
+      total: totalPrice,
+    }),
     amount: financeSplits
       .filter((split) => split.account === account)
       .reduce((sum, split) => sum + split.amount, 0),
-    pending: financeSplits
-      .filter((split) => split.account === account && !split.isPaid)
-      .reduce((sum, split) => sum + split.amount, 0),
+    paid: financeSplits
+      .filter((split) => split.account === account)
+      .reduce((sum, split) => sum + getSplitPaidAmount(split), 0),
   }))
+  const totalFinancePercentage = financeByAccount.reduce(
+    (sum, split) => sum + split.percentage,
+    0
+  )
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -451,54 +488,58 @@ export default async function AppointmentDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Trabalhadores</h2>
-                <p className="text-sm text-zinc-400">Define a divisao financeira</p>
+                <p className="text-sm text-zinc-400">Define a percentagem financeira</p>
               </div>
             </div>
 
-            <div className="grid gap-3">
-              {[WorkerAccount.JOAO, WorkerAccount.ADRIANA].map((worker) => (
+            <div className="space-y-3">
+              {financeByAccount.map((split) => (
                 <label
-                  key={worker}
-                  className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold"
+                  key={split.account}
+                  className="block rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm"
                 >
-                  <input
-                    name="workers"
-                    type="checkbox"
-                    value={worker}
-                    defaultChecked={
-                      selectedWorkers.size === 0
-                        ? worker === WorkerAccount.JOAO
-                        : selectedWorkers.has(worker)
-                    }
-                    className="h-4 w-4 accent-red-300"
-                  />
-                  {workerLabel(worker)}
+                  <span className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">{workerLabel(split.account)}</span>
+                    <span className="text-xs text-zinc-500">
+                      {formatMoney(split.amount)} definido
+                    </span>
+                  </span>
+                  <span className="mt-3 grid grid-cols-[1fr_auto] gap-3">
+                    <input
+                      name={`percentage_${split.account}`}
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      defaultValue={Number(split.percentage.toFixed(2))}
+                      className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                    />
+                    <span className="flex min-w-12 items-center justify-center rounded-2xl border border-white/10 bg-black/20 px-3 text-sm font-black text-zinc-300">
+                      %
+                    </span>
+                  </span>
+                  <span className="mt-2 block text-xs text-zinc-500">
+                    Pago: {formatMoney(split.paid)} · Falta:{" "}
+                    {formatMoney(Math.max(0, split.amount - split.paid))}
+                  </span>
                 </label>
               ))}
             </div>
 
-            <div className="mt-4 space-y-2">
-              {financeByAccount.map((split) => (
-                <div
-                  key={split.account}
-                  className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm"
-                >
-                  <span className="font-semibold">{workerLabel(split.account)}</span>
-                  <span className="text-right">
-                    <span className="block font-semibold text-white">
-                      {formatMoney(split.amount)}
-                    </span>
-                    <span className="text-xs text-zinc-500">
-                      {formatMoney(split.pending)} por pagar
-                    </span>
-                  </span>
-                </div>
-              ))}
-            </div>
+            <p
+              className={`mt-4 rounded-2xl border px-4 py-3 text-sm ${
+                Math.abs(totalFinancePercentage - 100) <= 0.01
+                  ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-200"
+                  : "border-amber-400/20 bg-amber-500/10 text-amber-100"
+              }`}
+            >
+              Total atual: {totalFinancePercentage.toFixed(2)}%. Para guardar, o total
+              deve ser 100%.
+            </p>
 
             <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
               <Save className="h-4 w-4" />
-              Guardar trabalhadores
+              Guardar percentagens
             </button>
           </form>
         </div>
