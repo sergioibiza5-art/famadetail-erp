@@ -1,6 +1,8 @@
+import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { CalendarDays, Euro, User, WalletCards } from "lucide-react"
 import { WorkerAccount } from "@prisma/client"
+import { getPaidAmount } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -51,7 +53,7 @@ async function payAccount(formData: FormData) {
   })
 
   const pendingTotal = splits.reduce((sum, split) => {
-    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const paidAmount = getPaidAmount(split)
     return sum + Math.max(0, split.amount - paidAmount)
   }, 0)
 
@@ -67,7 +69,7 @@ async function payAccount(formData: FormData) {
   for (const split of splits) {
     if (remainingPayment <= 0) break
 
-    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const paidAmount = getPaidAmount(split)
     const missingAmount = Math.max(0, split.amount - paidAmount)
 
     if (missingAmount <= 0) continue
@@ -89,8 +91,7 @@ async function payAccount(formData: FormData) {
 
   if (remainingPayment > 0 && splits.length > 0) {
     const targetSplit = splits[splits.length - 1]
-    const paidAmount =
-      targetSplit.paidAmount || (targetSplit.isPaid ? targetSplit.amount : 0)
+    const paidAmount = getPaidAmount(targetSplit)
     const nextPaidAmount = paidAmount + remainingPayment
 
     await prisma.financialSplit.update({
@@ -131,15 +132,15 @@ export default async function FinancePage() {
     const total = accountSplits.reduce((sum, split) => sum + split.amount, 0)
     const paid = accountSplits.reduce(
       (sum, split) =>
-        sum + (split.paidAmount || (split.isPaid ? split.amount : 0)),
+        sum + getPaidAmount(split),
       0
     )
     const pending = accountSplits.reduce((sum, split) => {
-      const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+      const paidAmount = getPaidAmount(split)
       return sum + Math.max(0, split.amount - paidAmount)
     }, 0)
     const credit = accountSplits.reduce((sum, split) => {
-      const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+      const paidAmount = getPaidAmount(split)
       return sum + Math.max(0, paidAmount - split.amount)
     }, 0)
 
@@ -153,21 +154,21 @@ export default async function FinancePage() {
   })
 
   const pendingSplits = splits.filter((split) => {
-    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const paidAmount = getPaidAmount(split)
     return paidAmount < split.amount
   })
   const completedServiceIds = new Set(splits.map((split) => split.appointmentId))
   const totalToReceive = pendingSplits.reduce((sum, split) => {
-    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const paidAmount = getPaidAmount(split)
     return sum + Math.max(0, split.amount - paidAmount)
   }, 0)
   const totalReceived = splits.reduce(
     (sum, split) =>
-      sum + (split.paidAmount || (split.isPaid ? split.amount : 0)),
+      sum + getPaidAmount(split),
     0
   )
   const totalCredit = splits.reduce((sum, split) => {
-    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const paidAmount = getPaidAmount(split)
     return sum + Math.max(0, paidAmount - split.amount)
   }, 0)
   const totalGenerated = splits.reduce((sum, split) => sum + split.amount, 0)
@@ -251,7 +252,12 @@ export default async function FinancePage() {
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm text-zinc-400">{accountLabel(item.account)}</p>
+                <Link
+                  href={`/financeiro/${item.account}`}
+                  className="text-sm font-semibold text-zinc-200 underline-offset-4 transition hover:text-red-200 hover:underline"
+                >
+                  {accountLabel(item.account)}
+                </Link>
                 <p className="mt-1 text-xs text-zinc-600">
                   {formatMoney(item.paid)} pago
                 </p>
