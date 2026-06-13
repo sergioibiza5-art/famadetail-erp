@@ -1,6 +1,12 @@
+import Link from "next/link"
 import { revalidatePath } from "next/cache"
-import { ExpenseCategory } from "@prisma/client"
-import { Minus, Package, Plus, Receipt } from "lucide-react"
+import { ProductType } from "@prisma/client"
+import { Minus, Package, Plus } from "lucide-react"
+import {
+  defaultUnitForProductType,
+  getProductStockValue,
+  productTypeLabel,
+} from "@/lib/product-stock"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -12,33 +18,20 @@ function formatMoney(value: number) {
   }).format(value)
 }
 
-function categoryLabel(category: ExpenseCategory) {
-  switch (category) {
-    case "PRODUCTS":
-      return "Produtos"
-    case "MATERIAL":
-      return "Material"
-    case "TOOLS":
-      return "Ferramentas"
-    case "MARKETING":
-      return "Marketing"
-    case "RENT":
-      return "Renda"
-    case "OTHER":
-      return "Outro"
-    default:
-      return category
-  }
-}
-
 async function createProduct(formData: FormData) {
   "use server"
 
   const name = String(formData.get("name") || "").trim()
-  const stock = Number(formData.get("stock") || 0)
+  const typeValue = String(formData.get("type") || "LIQUID") as ProductType
+  const type = Object.values(ProductType).includes(typeValue)
+    ? typeValue
+    : ProductType.LIQUID
+  const initialStock = Number(formData.get("initialStock") || 0)
+  const stock = Number(formData.get("stock") || initialStock || 0)
   const minStock = Number(formData.get("minStock") || 0)
   const price = Number(formData.get("price") || 0)
-  const unit = String(formData.get("unit") || "").trim()
+  const unit =
+    String(formData.get("unit") || "").trim() || defaultUnitForProductType(type)
   const notes = String(formData.get("notes") || "").trim()
 
   if (!name) return
@@ -46,6 +39,8 @@ async function createProduct(formData: FormData) {
   await prisma.product.create({
     data: {
       name,
+      type,
+      initialStock: Number.isFinite(initialStock) ? initialStock : 0,
       stock: Number.isFinite(stock) ? stock : 0,
       minStock: Number.isFinite(minStock) ? minStock : 0,
       price: Number.isFinite(price) ? price : 0,
@@ -89,48 +84,19 @@ async function createMovement(formData: FormData) {
   revalidatePath("/stock")
 }
 
-async function createExpense(formData: FormData) {
-  "use server"
-
-  const title = String(formData.get("title") || "").trim()
-  const amount = Number(formData.get("amount") || 0)
-  const category = String(formData.get("category") || "OTHER") as ExpenseCategory
-  const notes = String(formData.get("notes") || "").trim()
-
-  if (!title || !Number.isFinite(amount)) return
-
-  await prisma.expense.create({
-    data: {
-      title,
-      amount,
-      category: Object.values(ExpenseCategory).includes(category) ? category : "OTHER",
-      notes: notes || null,
+export default async function StockPage() {
+  const products = await prisma.product.findMany({
+    include: {
+      movements: {
+        orderBy: { createdAt: "desc" },
+        take: 3,
+      },
     },
+    orderBy: { name: "asc" },
   })
 
-  revalidatePath("/stock")
-  revalidatePath("/analytics")
-}
-
-export default async function StockPage() {
-  const [products, expenses] = await Promise.all([
-    prisma.product.findMany({
-      include: {
-        movements: {
-          orderBy: { createdAt: "desc" },
-          take: 3,
-        },
-      },
-      orderBy: { name: "asc" },
-    }),
-    prisma.expense.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 20,
-    }),
-  ])
-
   const totalStockValue = products.reduce(
-    (sum, product) => sum + product.stock * product.price,
+    (sum, product) => sum + getProductStockValue(product),
     0
   )
   const lowStock = products.filter((product) => product.stock <= product.minStock)
@@ -146,7 +112,7 @@ export default async function StockPage() {
             Gestao de stock
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Produtos, movimentos e despesas da operacao.
+            Produtos e movimentos da operacao.
           </p>
         </div>
 
@@ -182,17 +148,45 @@ export default async function StockPage() {
                 />
               </label>
 
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Tipo
+                <select
+                  name="type"
+                  defaultValue="LIQUID"
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                >
+                  {Object.values(ProductType).map((type) => (
+                    <option key={type} value={type}>
+                      {productTypeLabel(type)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Stock
+                  Qtd. inicial
+                  <input
+                    name="initialStock"
+                    type="number"
+                    step="0.01"
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                    placeholder="Produto cheio"
+                  />
+                </label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Qtd. atual
                   <input
                     name="stock"
                     type="number"
                     step="0.01"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                    placeholder="0"
+                    placeholder="Quanto tens agora"
                   />
                 </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                   Minimo
                   <input
@@ -207,7 +201,7 @@ export default async function StockPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Preco
+                  Preco compra
                   <input
                     name="price"
                     type="number"
@@ -221,7 +215,7 @@ export default async function StockPage() {
                   <input
                     name="unit"
                     className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                    placeholder="L, un, kg"
+                    placeholder="ml, g, un"
                   />
                 </label>
               </div>
@@ -324,111 +318,42 @@ export default async function StockPage() {
                 </p>
               ) : (
                 products.map((product) => (
-                  <div
+                  <Link
                     key={product.id}
-                    className="grid gap-3 p-4 sm:grid-cols-[1fr_auto_auto]"
+                    href={`/stock/${product.id}`}
+                    className="grid gap-3 p-4 transition hover:bg-white/[0.03] sm:grid-cols-[1fr_120px_130px_110px] sm:items-center"
                   >
                     <div>
-                      <p className="font-semibold">{product.name}</p>
-                      <p className="text-sm text-zinc-400">
-                        {product.notes || "Sem notas"}
+                      <p className="font-semibold text-white">{product.name}</p>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {productTypeLabel(product.type)} · {product.notes || "Sem notas"}
                       </p>
                     </div>
                     <div className="text-sm">
-                      <p className="text-zinc-500">Stock</p>
-                      <p className="font-semibold">
+                      <p className="text-zinc-500">Atual</p>
+                      <p className="font-semibold text-white">
                         {product.stock} {product.unit || "un"}
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        cheio: {product.initialStock || product.stock} {product.unit || "un"}
                       </p>
                     </div>
                     <div className="text-sm">
                       <p className="text-zinc-500">Valor</p>
-                      <p className="font-semibold">{formatMoney(product.stock * product.price)}</p>
+                      <p className="font-semibold text-white">
+                        {formatMoney(getProductStockValue(product))}
+                      </p>
                     </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <form
-            action={createExpense}
-            className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
-          >
-            <div className="mb-4 flex items-center gap-3">
-              <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
-                <Receipt className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold">Nova despesa</h2>
-                <p className="text-sm text-zinc-400">Registar custo da operacao</p>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Titulo
-                <input
-                  name="title"
-                  required
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                />
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Valor
-                <input
-                  name="amount"
-                  type="number"
-                  step="0.01"
-                  required
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                />
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Categoria
-                <select
-                  name="category"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                >
-                  {Object.values(ExpenseCategory).map((category) => (
-                    <option key={category} value={category}>
-                      {categoryLabel(category)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Notas
-                <input
-                  name="notes"
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                />
-              </label>
-            </div>
-
-            <button className="mt-4 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
-              Guardar despesa
-            </button>
-          </form>
-
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-            <div className="border-b border-white/10 p-4">
-              <h2 className="text-lg font-semibold">Despesas recentes</h2>
-            </div>
-            <div className="divide-y divide-white/10">
-              {expenses.length === 0 ? (
-                <p className="p-6 text-center text-sm text-zinc-500">
-                  Nenhuma despesa registada.
-                </p>
-              ) : (
-                expenses.map((expense) => (
-                  <div
-                    key={expense.id}
-                    className="grid gap-2 p-4 sm:grid-cols-[1fr_auto_auto]"
-                  >
-                    <p className="font-semibold">{expense.title}</p>
-                    <p className="text-sm text-zinc-400">{categoryLabel(expense.category)}</p>
-                    <p className="font-semibold">{formatMoney(expense.amount)}</p>
-                  </div>
+                    <span
+                      className={`w-fit rounded-full border px-3 py-1 text-xs font-semibold ${
+                        product.stock <= product.minStock
+                          ? "border-red-400/25 bg-red-500/10 text-red-200"
+                          : "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                      }`}
+                    >
+                      {product.stock <= product.minStock ? "Baixo" : "OK"}
+                    </span>
+                  </Link>
                 ))
               )}
             </div>

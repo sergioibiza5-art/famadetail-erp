@@ -131,7 +131,6 @@ export default async function DashboardPage() {
   )
   const activeAppointments = activeAppointmentCandidates
     .filter((appointment) => !customerRequestIds.has(appointment.id))
-    .slice(0, 5)
 
   const paidRevenue = completedMetrics.reduce(
     (sum, appointment) =>
@@ -288,7 +287,7 @@ export default async function DashboardPage() {
             <h2 className="text-lg font-semibold">Agenda ativa</h2>
 
             <p className="text-sm text-zinc-400">
-              Proximos trabalhos em aberto
+              {activeAppointments.length} trabalho(s) em aberto
             </p>
           </div>
 

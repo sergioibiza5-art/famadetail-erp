@@ -9,12 +9,15 @@ import {
   CheckCircle,
   CreditCard,
   Euro,
+  Mail,
   Save,
   User,
   Users,
 } from "lucide-react"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
+import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
+import { quietly, sendVehicleReadyEmail } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -118,15 +121,14 @@ export default async function AppointmentDetailPage({ params }: Props) {
     const status = String(formData.get("status") || "") as AppointmentStatus
     if (!Object.values(AppointmentStatus).includes(status)) return
 
-    await prisma.appointment.update({
-      where: { id },
-      data: { status },
-    })
+    await updateAppointmentStatusWithStock(id, status)
 
     revalidatePath("/agenda")
     revalidatePath(`/agenda/${id}`)
     revalidatePath("/dashboard")
     revalidatePath("/marcar")
+    revalidatePath("/stock")
+    revalidatePath("/analytics")
   }
 
   async function updatePayment(formData: FormData) {
@@ -220,6 +222,9 @@ export default async function AppointmentDetailPage({ params }: Props) {
               },
               update: {
                 amount,
+                paidAmount:
+                  existing?.paidAmount ||
+                  (existing?.isPaid ? existing.amount : 0),
                 isPaid: existing?.isPaid || false,
                 paidAt: existing?.paidAt || null,
               },
@@ -238,6 +243,25 @@ export default async function AppointmentDetailPage({ params }: Props) {
     revalidatePath(`/agenda/${id}`)
     revalidatePath("/dashboard")
     revalidatePath("/financeiro")
+  }
+
+  async function sendReadyNotification() {
+    "use server"
+
+    const item = await prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        vehicle: true,
+        serviceTemplate: true,
+      },
+    })
+
+    if (!item?.customer.email) return
+
+    await quietly(sendVehicleReadyEmail(item))
+
+    revalidatePath(`/agenda/${id}`)
   }
 
   const beforePhotos = appointment.photos.filter((photo) => photo.type === "BEFORE")
@@ -492,6 +516,18 @@ export default async function AppointmentDetailPage({ params }: Props) {
                 </div>
               </div>
               <p className="text-xl font-semibold">{appointment.customer.name}</p>
+              <p className="mt-2 break-all text-sm text-zinc-400">
+                {appointment.customer.email || "Sem email"}
+              </p>
+              <form action={sendReadyNotification}>
+                <button
+                  disabled={!appointment.customer.email}
+                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-xs font-black text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Mail className="h-4 w-4" />
+                  Enviar aviso: carro pronto
+                </button>
+              </form>
               <Link
                 href={`/clientes/${appointment.customerId}`}
                 className="mt-4 inline-flex rounded-full border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"

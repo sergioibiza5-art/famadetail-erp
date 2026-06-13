@@ -26,3 +26,23 @@ body {
   background: rgba(239, 68, 68, 0.35);
   color: #ffffff;
 }
+
+select {
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background: #121214;
+  color: #ffffff;
+}
+
+input::file-selector-button {
+  border: 0;
+  border-radius: 0.75rem;
+  background: #f4f4f5;
+  color: #09090b;
+  font-weight: 800;
+  padding: 0.5rem 0.75rem;
+  margin-right: 0.75rem;
+}

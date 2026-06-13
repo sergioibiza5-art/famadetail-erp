@@ -6,6 +6,228 @@ datasource db {
   provider = "postgresql"
 }
 
+model Customer {
+  id           String        @id @default(cuid())
+  name         String
+  phone        String?
+  email        String?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  appointments Appointment[]
+  services     Service[]
+  vehicles     Vehicle[]
+}
+
+model Vehicle {
+  id           String            @id @default(cuid())
+  brand        String
+  model        String
+  plate        String            @unique
+  color        String?
+  year         Int?
+  status       VehicleStatus     @default(WAITING)
+  notes        String?
+  customerId   String
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+  appointments Appointment[]
+  services     Service[]
+  customer     Customer          @relation(fields: [customerId], references: [id])
+  photos       VehiclePhoto[]
+  timeline     VehicleTimeline[]
+}
+
+model VehicleTimeline {
+  id          String       @id @default(cuid())
+  title       String
+  description String?
+  type        TimelineType
+  vehicleId   String
+  createdAt   DateTime     @default(now())
+  vehicle     Vehicle      @relation(fields: [vehicleId], references: [id])
+}
+
+model VehiclePhoto {
+  id            String       @id @default(cuid())
+  imageUrl      String
+  type          PhotoType
+  vehicleId     String
+  serviceId     String?
+  createdAt     DateTime     @default(now())
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
+  service       Service?     @relation(fields: [serviceId], references: [id])
+  vehicle       Vehicle      @relation(fields: [vehicleId], references: [id])
+}
+
+model ServiceTemplate {
+  id                   String                @id @default(cuid())
+  name                 String
+  description          String?
+  price                Float
+  durationMinutes      Int
+  isActive             Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  publicBookingEnabled Boolean               @default(true)
+  appointments         Appointment[]
+  productUsages        ServiceProductUsage[]
+  stockMovements       StockMovement[]
+}
+
+model Appointment {
+  id                String              @id @default(cuid())
+  title             String
+  notes             String?
+  date              DateTime
+  endDate           DateTime?
+  status            AppointmentStatus   @default(PENDING)
+  customerId        String
+  vehicleId         String
+  serviceTemplateId String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  isPaid            Boolean             @default(false)
+  paymentMethod     PaymentMethod?
+  groupId           String?
+  serviceIndex      Int?
+  serviceTotal      Int?
+  stockDeductedAt   DateTime?
+  customer          Customer            @relation(fields: [customerId], references: [id])
+  serviceTemplate   ServiceTemplate?    @relation(fields: [serviceTemplateId], references: [id])
+  vehicle           Vehicle             @relation(fields: [vehicleId], references: [id])
+  workers           AppointmentWorker[]
+  financialSplits   FinancialSplit[]
+  stockMovements    StockMovement[]
+  photos            VehiclePhoto[]
+}
+
+model AppointmentWorker {
+  id            String        @id @default(cuid())
+  worker        WorkerAccount
+  appointmentId String
+  createdAt     DateTime      @default(now())
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, worker])
+}
+
+model FinancialSplit {
+  id            String        @id @default(cuid())
+  account       WorkerAccount
+  amount        Float
+  isPaid        Boolean       @default(false)
+  paidAt        DateTime?
+  appointmentId String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  paidAmount    Float         @default(0)
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@unique([appointmentId, account])
+}
+
+model Service {
+  id              String         @id @default(cuid())
+  title           String
+  description     String?
+  price           Float
+  durationMinutes Int?
+  customerId      String
+  vehicleId       String
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  customer        Customer       @relation(fields: [customerId], references: [id])
+  vehicle         Vehicle        @relation(fields: [vehicleId], references: [id])
+  photos          VehiclePhoto[]
+}
+
+model Product {
+  id            String                @id @default(cuid())
+  name          String
+  stock         Float                 @default(0)
+  minStock      Float                 @default(0)
+  price         Float
+  unit          String?
+  notes         String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  initialStock  Float                 @default(0)
+  type          ProductType           @default(LIQUID)
+  serviceUsages ServiceProductUsage[]
+  movements     StockMovement[]
+}
+
+model ServiceProductUsage {
+  id                String          @id @default(cuid())
+  quantity          Float
+  serviceTemplateId String
+  productId         String
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  product           Product         @relation(fields: [productId], references: [id], onDelete: Cascade)
+  serviceTemplate   ServiceTemplate @relation(fields: [serviceTemplateId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceTemplateId, productId])
+}
+
+model StockMovement {
+  id                String           @id @default(cuid())
+  quantity          Float
+  notes             String?
+  productId         String
+  createdAt         DateTime         @default(now())
+  appointmentId     String?
+  serviceTemplateId String?
+  appointment       Appointment?     @relation(fields: [appointmentId], references: [id])
+  product           Product          @relation(fields: [productId], references: [id])
+  serviceTemplate   ServiceTemplate? @relation(fields: [serviceTemplateId], references: [id])
+}
+
+model Expense {
+  id        String          @id @default(cuid())
+  title     String
+  amount    Float
+  category  ExpenseCategory
+  notes     String?
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+}
+
+model AppSettings {
+  id                 String   @id @default("default")
+  businessName       String   @default("FamaDetail")
+  bookingEnabled     Boolean  @default(true)
+  pickupEnabled      Boolean  @default(true)
+  openTime           String   @default("09:00")
+  closeTime          String   @default("18:00")
+  slotStepMinutes    Int      @default(30)
+  monday             Boolean  @default(true)
+  tuesday            Boolean  @default(true)
+  wednesday          Boolean  @default(true)
+  thursday           Boolean  @default(true)
+  friday             Boolean  @default(true)
+  saturday           Boolean  @default(true)
+  sunday             Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  fridayCloseTime    String   @default("18:00")
+  fridayOpenTime     String   @default("09:00")
+  mondayCloseTime    String   @default("18:00")
+  mondayOpenTime     String   @default("09:00")
+  saturdayCloseTime  String   @default("16:00")
+  saturdayOpenTime   String   @default("10:00")
+  sundayCloseTime    String   @default("14:00")
+  sundayOpenTime     String   @default("10:00")
+  thursdayCloseTime  String   @default("18:00")
+  thursdayOpenTime   String   @default("09:00")
+  tuesdayCloseTime   String   @default("18:00")
+  tuesdayOpenTime    String   @default("09:00")
+  wednesdayCloseTime String   @default("18:00")
+  wednesdayOpenTime  String   @default("09:00")
+}
+
 enum AppointmentStatus {
   PENDING
   CONFIRMED
@@ -34,6 +256,18 @@ enum ExpenseCategory {
   OTHER
 }
 
+enum ProductType {
+  LIQUID
+  CHEMICAL
+  PASTE
+  POWDER
+  TOWEL
+  PAD
+  TOOL
+  CONSUMABLE
+  OTHER
+}
+
 enum VehicleStatus {
   WAITING
   WAITING_BEFORE_PHOTOS
@@ -55,271 +289,4 @@ enum TimelineType {
   SERVICE_STARTED
   SERVICE_FINISHED
   NOTE
-}
-
-model Customer {
-  id    String  @id @default(cuid())
-  name  String
-  phone String?
-  email String?
-  notes String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  vehicles     Vehicle[]
-  services     Service[]
-  appointments Appointment[]
-}
-
-model Vehicle {
-  id    String  @id @default(cuid())
-  brand String
-  model String
-  plate String  @unique
-  color String?
-  year  Int?
-
-  status VehicleStatus @default(WAITING)
-
-  notes String?
-
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
-
-  appointments Appointment[]
-  services     Service[]
-  photos       VehiclePhoto[]
-  timeline     VehicleTimeline[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model VehicleTimeline {
-  id          String       @id @default(cuid())
-  title       String
-  description String?
-  type        TimelineType
-
-  vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
-
-  createdAt DateTime @default(now())
-}
-
-model VehiclePhoto {
-  id String @id @default(cuid())
-
-  imageUrl String
-  type     PhotoType
-
-  vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
-
-  appointmentId String?
-  appointment   Appointment? @relation(fields: [appointmentId], references: [id])
-
-  serviceId String?
-  service   Service? @relation(fields: [serviceId], references: [id])
-
-  createdAt DateTime @default(now())
-}
-
-model ServiceTemplate {
-  id String @id @default(cuid())
-
-  name            String
-  description     String?
-  price           Float
-  durationMinutes Int
-
-  isActive              Boolean @default(true)
-  publicBookingEnabled  Boolean @default(true)
-
-  appointments Appointment[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Appointment {
-  id String @id @default(cuid())
-
-  title String
-  notes String?
-
-  date    DateTime
-  endDate DateTime?
-
-  status AppointmentStatus @default(PENDING)
-
-  isPaid        Boolean        @default(false)
-  paymentMethod PaymentMethod?
-
-  groupId      String?
-  serviceIndex Int?
-  serviceTotal Int?
-
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
-
-  vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
-
-  serviceTemplateId String?
-  serviceTemplate   ServiceTemplate? @relation(fields: [serviceTemplateId], references: [id])
-
-  photos VehiclePhoto[]
-  workers AppointmentWorker[]
-  financialSplits FinancialSplit[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model AppointmentWorker {
-  id String @id @default(cuid())
-
-  worker WorkerAccount
-
-  appointmentId String
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([appointmentId, worker])
-}
-
-model FinancialSplit {
-  id String @id @default(cuid())
-
-  account WorkerAccount
-  amount  Float
-
-  isPaid Boolean @default(false)
-  paidAt DateTime?
-
-  appointmentId String
-  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([appointmentId, account])
-}
-
-model Service {
-  id String @id @default(cuid())
-
-  title       String
-  description String?
-
-  price Float
-
-  durationMinutes Int?
-
-  customerId String
-  customer   Customer @relation(fields: [customerId], references: [id])
-
-  vehicleId String
-  vehicle   Vehicle @relation(fields: [vehicleId], references: [id])
-
-  photos VehiclePhoto[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model Product {
-  id String @id @default(cuid())
-
-  name String
-
-  stock    Float @default(0)
-  minStock Float @default(0)
-
-  price Float
-
-  unit String?
-
-  notes String?
-
-  movements StockMovement[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model StockMovement {
-  id String @id @default(cuid())
-
-  quantity Float
-
-  notes String?
-
-  productId String
-  product   Product @relation(fields: [productId], references: [id])
-
-  createdAt DateTime @default(now())
-}
-
-model Expense {
-  id String @id @default(cuid())
-
-  title String
-
-  amount Float
-
-  category ExpenseCategory
-
-  notes String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-
-model AppSettings {
-  id String @id @default("default")
-
-  businessName String @default("FamaDetail")
-
-  bookingEnabled Boolean @default(true)
-  pickupEnabled  Boolean @default(true)
-
-  openTime  String @default("09:00")
-  closeTime String @default("18:00")
-
-  slotStepMinutes Int @default(30)
-
-  monday          Boolean @default(true)
-  mondayOpenTime  String  @default("09:00")
-  mondayCloseTime String @default("18:00")
-
-  tuesday          Boolean @default(true)
-  tuesdayOpenTime  String  @default("09:00")
-  tuesdayCloseTime String @default("18:00")
-
-  wednesday          Boolean @default(true)
-  wednesdayOpenTime  String  @default("09:00")
-  wednesdayCloseTime String @default("18:00")
-
-  thursday          Boolean @default(true)
-  thursdayOpenTime  String  @default("09:00")
-  thursdayCloseTime String @default("18:00")
-
-  friday          Boolean @default(true)
-  fridayOpenTime  String  @default("09:00")
-  fridayCloseTime String @default("18:00")
-
-  saturday          Boolean @default(true)
-  saturdayOpenTime  String  @default("10:00")
-  saturdayCloseTime String @default("16:00")
-
-  sunday          Boolean @default(false)
-  sundayOpenTime  String  @default("10:00")
-  sundayCloseTime String @default("14:00")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
 }

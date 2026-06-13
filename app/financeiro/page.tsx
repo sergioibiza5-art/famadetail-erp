@@ -1,6 +1,5 @@
-import Link from "next/link"
 import { revalidatePath } from "next/cache"
-import { CheckCircle, CreditCard, Euro, User, WalletCards } from "lucide-react"
+import { CalendarDays, Euro, User, WalletCards } from "lucide-react"
 import { WorkerAccount } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
@@ -11,13 +10,6 @@ function formatMoney(value: number) {
     style: "currency",
     currency: "EUR",
   }).format(value || 0)
-}
-
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("pt-PT", {
-    dateStyle: "short",
-    timeStyle: "short",
-  }).format(value)
 }
 
 function accountLabel(account: WorkerAccount) {
@@ -33,88 +25,179 @@ function accountLabel(account: WorkerAccount) {
   }
 }
 
-async function updateSplitPayment(formData: FormData) {
+async function payAccount(formData: FormData) {
   "use server"
 
-  const id = String(formData.get("id") || "")
-  const isPaid = String(formData.get("isPaid") || "") === "on"
+  const account = String(formData.get("account") || "") as WorkerAccount
+  const amountValue = String(formData.get("amount") || "").replace(",", ".")
+  const payAll = String(formData.get("payAll") || "") === "on"
 
-  if (!id) return
+  if (!Object.values(WorkerAccount).includes(account)) return
 
-  const split = await prisma.financialSplit.update({
-    where: { id },
-    data: {
-      isPaid,
-      paidAt: isPaid ? new Date() : null,
+  const splits = await prisma.financialSplit.findMany({
+    where: { account },
+    include: {
+      appointment: {
+        select: {
+          date: true,
+        },
+      },
     },
-    select: {
-      appointmentId: true,
+    orderBy: {
+      appointment: {
+        date: "asc",
+      },
     },
   })
+
+  const pendingTotal = splits.reduce((sum, split) => {
+    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    return sum + Math.max(0, split.amount - paidAmount)
+  }, 0)
+
+  const parsedAmount = amountValue ? Number(amountValue) : 0
+  let remainingPayment = payAll
+    ? pendingTotal
+    : Number.isFinite(parsedAmount) && parsedAmount > 0
+      ? parsedAmount
+      : 0
+
+  if (remainingPayment <= 0) return
+
+  for (const split of splits) {
+    if (remainingPayment <= 0) break
+
+    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    const missingAmount = Math.max(0, split.amount - paidAmount)
+
+    if (missingAmount <= 0) continue
+
+    const amountToApply = Math.min(missingAmount, remainingPayment)
+    const nextPaidAmount = paidAmount + amountToApply
+
+    await prisma.financialSplit.update({
+      where: { id: split.id },
+      data: {
+        paidAmount: nextPaidAmount,
+        isPaid: nextPaidAmount >= split.amount,
+        paidAt: nextPaidAmount >= split.amount ? new Date() : null,
+      },
+    })
+
+    remainingPayment -= amountToApply
+  }
+
+  if (remainingPayment > 0 && splits.length > 0) {
+    const targetSplit = splits[splits.length - 1]
+    const paidAmount =
+      targetSplit.paidAmount || (targetSplit.isPaid ? targetSplit.amount : 0)
+    const nextPaidAmount = paidAmount + remainingPayment
+
+    await prisma.financialSplit.update({
+      where: { id: targetSplit.id },
+      data: {
+        paidAmount: nextPaidAmount,
+        isPaid: true,
+        paidAt: new Date(),
+      },
+    })
+  }
 
   revalidatePath("/financeiro")
   revalidatePath("/dashboard")
   revalidatePath("/agenda")
-  revalidatePath(`/agenda/${split.appointmentId}`)
 }
 
 export default async function FinancePage() {
-  const [splits, appointmentsWithoutSplits] = await Promise.all([
-    prisma.financialSplit.findMany({
-      include: {
-        appointment: {
-          include: {
-            customer: true,
-            vehicle: true,
-            serviceTemplate: true,
-          },
+  const splits = await prisma.financialSplit.findMany({
+    include: {
+      appointment: {
+        include: {
+          customer: true,
+          vehicle: true,
+          serviceTemplate: true,
         },
       },
-      orderBy: {
-        appointment: {
-          date: "desc",
-        },
-      },
-    }),
-    prisma.appointment.findMany({
-      where: {
-        status: {
-          notIn: ["CANCELLED"],
-        },
-        financialSplits: {
-          none: {},
-        },
-      },
-      include: {
-        customer: true,
-        vehicle: true,
-        serviceTemplate: true,
-      },
-      orderBy: {
+    },
+    orderBy: {
+      appointment: {
         date: "desc",
       },
-      take: 8,
-    }),
-  ])
+    },
+  })
 
   const totals = Object.values(WorkerAccount).map((account) => {
     const accountSplits = splits.filter((split) => split.account === account)
     const total = accountSplits.reduce((sum, split) => sum + split.amount, 0)
-    const paid = accountSplits
-      .filter((split) => split.isPaid)
-      .reduce((sum, split) => sum + split.amount, 0)
-    const pending = total - paid
+    const paid = accountSplits.reduce(
+      (sum, split) =>
+        sum + (split.paidAmount || (split.isPaid ? split.amount : 0)),
+      0
+    )
+    const pending = accountSplits.reduce((sum, split) => {
+      const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+      return sum + Math.max(0, split.amount - paidAmount)
+    }, 0)
+    const credit = accountSplits.reduce((sum, split) => {
+      const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+      return sum + Math.max(0, paidAmount - split.amount)
+    }, 0)
 
     return {
       account,
       total,
       paid,
       pending,
+      credit,
     }
   })
 
-  const pendingSplits = splits.filter((split) => !split.isPaid)
-  const paidSplits = splits.filter((split) => split.isPaid)
+  const pendingSplits = splits.filter((split) => {
+    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    return paidAmount < split.amount
+  })
+  const completedServiceIds = new Set(splits.map((split) => split.appointmentId))
+  const totalToReceive = pendingSplits.reduce((sum, split) => {
+    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    return sum + Math.max(0, split.amount - paidAmount)
+  }, 0)
+  const totalReceived = splits.reduce(
+    (sum, split) =>
+      sum + (split.paidAmount || (split.isPaid ? split.amount : 0)),
+    0
+  )
+  const totalCredit = splits.reduce((sum, split) => {
+    const paidAmount = split.paidAmount || (split.isPaid ? split.amount : 0)
+    return sum + Math.max(0, paidAmount - split.amount)
+  }, 0)
+  const totalGenerated = splits.reduce((sum, split) => sum + split.amount, 0)
+
+  const summaryCards = [
+    {
+      label: "Servicos feitos",
+      value: String(completedServiceIds.size),
+      detail: `${splits.length} parcela(s) financeiras`,
+      icon: CalendarDays,
+    },
+    {
+      label: "Total gerado",
+      value: formatMoney(totalGenerated),
+      detail: "Valor total dividido",
+      icon: Euro,
+    },
+    {
+      label: "Recebido",
+      value: formatMoney(totalReceived),
+      detail: "Pagamentos registados",
+      icon: WalletCards,
+    },
+    {
+      label: "A receber",
+      value: formatMoney(totalToReceive),
+      detail: totalCredit > 0 ? `${formatMoney(totalCredit)} em saldo` : "Sem saldo extra",
+      icon: Euro,
+    },
+  ]
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -132,8 +215,32 @@ export default async function FinancePage() {
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          {pendingSplits.length} pendente(s)
+          {formatMoney(totalToReceive)} a receber
         </div>
+      </div>
+
+      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {summaryCards.map((card) => {
+          const Icon = card.icon
+
+          return (
+            <div
+              key={card.label}
+              className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4"
+            >
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-zinc-400">{card.label}</p>
+                  <p className="mt-1 text-xs text-zinc-600">{card.detail}</p>
+                </div>
+                <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
+                  <Icon className="h-5 w-5" />
+                </div>
+              </div>
+              <p className="text-2xl font-bold text-white">{card.value}</p>
+            </div>
+          )
+        })}
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
@@ -162,168 +269,36 @@ export default async function FinancePage() {
               {formatMoney(item.pending)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">por pagar</p>
+            {item.credit > 0 && (
+              <p className="mt-2 text-xs font-semibold text-emerald-300">
+                {formatMoney(item.credit)} em saldo
+              </p>
+            )}
+
+            <form action={payAccount} className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+              <input type="hidden" name="account" value={item.account} />
+              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Pagar agora
+                <input
+                  name="amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0,00"
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+                />
+              </label>
+              <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
+                Pagar tudo em falta
+                <input name="payAll" type="checkbox" className="h-4 w-4 accent-red-300" />
+              </label>
+              <button className="mt-3 w-full rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white transition hover:bg-red-400">
+                Guardar pagamento
+              </button>
+            </form>
           </div>
         ))}
       </div>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_380px]">
-        <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-          <div className="border-b border-white/10 p-4 sm:p-5">
-            <h2 className="text-lg font-semibold">Valores pendentes</h2>
-            <p className="text-sm text-zinc-400">
-              Marca cada conta quando o valor for entregue.
-            </p>
-          </div>
-
-          <div className="divide-y divide-white/10">
-            {pendingSplits.length === 0 ? (
-              <p className="p-8 text-center text-sm text-zinc-500">
-                Nenhum valor pendente.
-              </p>
-            ) : (
-              pendingSplits.map((split) => (
-                <FinancialSplitRow
-                  key={split.id}
-                  split={split}
-                  updateSplitPayment={updateSplitPayment}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-            <div className="border-b border-white/10 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">Por configurar</h2>
-              <p className="text-sm text-zinc-400">
-                Agendamentos sem trabalhadores definidos.
-              </p>
-            </div>
-
-            <div className="divide-y divide-white/10">
-              {appointmentsWithoutSplits.length === 0 ? (
-                <p className="p-6 text-center text-sm text-zinc-500">
-                  Tudo configurado.
-                </p>
-              ) : (
-                appointmentsWithoutSplits.map((appointment) => (
-                  <Link
-                    key={appointment.id}
-                    href={`/agenda/${appointment.id}`}
-                    className="block p-4 transition hover:bg-white/5"
-                  >
-                    <p className="font-semibold text-white">{appointment.title}</p>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      {appointment.customer.name} - {appointment.vehicle.brand}{" "}
-                      {appointment.vehicle.model}
-                    </p>
-                    <p className="mt-2 text-xs text-zinc-500">
-                      {formatDate(appointment.date)}
-                    </p>
-                  </Link>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-            <div className="border-b border-white/10 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">Pagos recentes</h2>
-              <p className="text-sm text-zinc-400">Ultimas parcelas liquidadas.</p>
-            </div>
-
-            <div className="divide-y divide-white/10">
-              {paidSplits.slice(0, 6).length === 0 ? (
-                <p className="p-6 text-center text-sm text-zinc-500">
-                  Nenhum pagamento registado.
-                </p>
-              ) : (
-                paidSplits.slice(0, 6).map((split) => (
-                  <FinancialSplitRow
-                    key={split.id}
-                    split={split}
-                    updateSplitPayment={updateSplitPayment}
-                    compact
-                  />
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
     </section>
-  )
-}
-
-type SplitWithAppointment = Awaited<
-  ReturnType<typeof prisma.financialSplit.findMany>
->[number] & {
-  appointment: {
-    id: string
-    title: string
-    date: Date
-    customer: { name: string }
-    vehicle: { brand: string; model: string }
-    serviceTemplate: { price: number } | null
-  }
-}
-
-function FinancialSplitRow({
-  split,
-  updateSplitPayment,
-  compact = false,
-}: {
-  split: SplitWithAppointment
-  updateSplitPayment: (formData: FormData) => Promise<void>
-  compact?: boolean
-}) {
-  return (
-    <div
-      className={`grid gap-3 p-4 ${
-        compact ? "" : "sm:grid-cols-[1fr_130px_150px] sm:items-center"
-      }`}
-    >
-      <Link href={`/agenda/${split.appointment.id}`} className="min-w-0">
-        <p className="truncate font-semibold text-white">
-          {accountLabel(split.account)} - {split.appointment.title}
-        </p>
-        <p className="mt-1 truncate text-sm text-zinc-400">
-          {split.appointment.customer.name} - {split.appointment.vehicle.brand}{" "}
-          {split.appointment.vehicle.model}
-        </p>
-        <p className="mt-2 text-xs text-zinc-500">
-          {formatDate(split.appointment.date)}
-        </p>
-      </Link>
-
-      <div className="flex items-center gap-2 text-sm font-semibold text-white">
-        <Euro className="h-4 w-4 text-red-300" />
-        {formatMoney(split.amount)}
-      </div>
-
-      <form action={updateSplitPayment}>
-        <input type="hidden" name="id" value={split.id} />
-        <label className="flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          <span className="inline-flex items-center gap-2">
-            {split.isPaid ? (
-              <CheckCircle className="h-4 w-4 text-emerald-300" />
-            ) : (
-              <CreditCard className="h-4 w-4 text-zinc-400" />
-            )}
-            Pago
-          </span>
-          <input
-            name="isPaid"
-            type="checkbox"
-            defaultChecked={split.isPaid}
-            className="h-4 w-4 accent-red-300"
-          />
-        </label>
-        <button className="mt-2 w-full rounded-xl bg-zinc-100 px-3 py-2 text-xs font-black text-black transition hover:bg-white">
-          Guardar
-        </button>
-      </form>
-    </div>
   )
 }

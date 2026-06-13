@@ -49,7 +49,7 @@ export function VehiclePhotoUpload({
         label: "text-sm text-white",
         allowedContent: "mt-1 text-[11px] text-zinc-500",
         button:
-          "mt-3 rounded-xl bg-zinc-100 px-3 py-2 text-xs font-black text-black hover:bg-white ut-readying:bg-zinc-100",
+          "mt-3 rounded-xl bg-red-500 px-4 py-2 text-xs font-black text-white hover:bg-red-400 ut-readying:bg-red-500 ut-uploading:bg-red-500",
       }}
       content={{
         label: (

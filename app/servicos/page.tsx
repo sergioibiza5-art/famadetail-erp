@@ -41,6 +41,9 @@ function formatDuration(minutes: number) {
 
 export default async function ServicosPage() {
   const services = await prisma.serviceTemplate.findMany({
+    include: {
+      productUsages: true,
+    },
     orderBy: { createdAt: "desc" },
   })
 
@@ -127,7 +130,7 @@ export default async function ServicosPage() {
               services.map((service) => (
                 <div
                   key={service.id}
-                  className="grid gap-4 p-4 transition hover:bg-white/5 md:grid-cols-[1fr_120px_120px_1fr_100px] md:items-center md:p-5"
+                  className="grid gap-4 p-4 transition hover:bg-white/5 md:grid-cols-[1fr_110px_110px_120px_1fr_100px] md:items-center md:p-5"
                 >
                   <div className="font-semibold text-white">{service.name}</div>
                   <div className="text-sm font-semibold text-red-300">
@@ -135,6 +138,9 @@ export default async function ServicosPage() {
                   </div>
                   <div className="text-sm text-zinc-300">
                     {formatDuration(service.durationMinutes)}
+                  </div>
+                  <div className="text-sm text-zinc-300">
+                    {service.productUsages.length} produto(s)
                   </div>
                   <div className="text-sm text-zinc-400">
                     {service.description || "Sem descricao"}

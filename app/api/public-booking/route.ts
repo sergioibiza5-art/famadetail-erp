@@ -6,6 +6,7 @@ import {
   hasBusyOverlap,
   planBookingWork,
 } from "@/lib/booking-schedule"
+import { notifyNewPublicBookingTelegram, quietly } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { getAppSettings } from "@/lib/settings"
 
@@ -51,14 +52,14 @@ export async function POST(request: Request) {
     serviceIds.length === 0 ||
     !dateTime ||
     !name ||
-    (!phone && !email) ||
+    !email ||
     !brand ||
     !model ||
     !plate
   ) {
     return NextResponse.json(
       {
-        error: "Preencha os campos obrigatorios e indique telemovel ou email.",
+        error: "Preencha os campos obrigatorios e indique um email valido.",
       },
       {
         status: 400,
@@ -160,7 +161,7 @@ export async function POST(request: Request) {
     )
   }
 
-  const customer =
+  let customer =
     (await prisma.customer.findFirst({
       where: {
         OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])],
@@ -173,6 +174,16 @@ export async function POST(request: Request) {
         email: email || null,
       },
     }))
+
+  if (customer && (customer.email !== email || (phone && customer.phone !== phone))) {
+    customer = await prisma.customer.update({
+      where: { id: customer.id },
+      data: {
+        email,
+        phone: phone || customer.phone,
+      },
+    })
+  }
 
   const existingVehicle = await prisma.vehicle.findUnique({
     where: {
@@ -209,7 +220,7 @@ export async function POST(request: Request) {
   const groupId = orderedServices.length > 1 ? randomUUID() : null
   let cursor = new Date(startDate)
 
-  await prisma.$transaction(
+  const createdAppointments = await prisma.$transaction(
     orderedServices.map((service, index) => {
       const servicePlan = planBookingWork(settings, cursor, service.durationMinutes, {
         allowMoveToNextWindow: index > 0,
@@ -241,9 +252,20 @@ export async function POST(request: Request) {
   revalidatePath("/agenda")
   revalidatePath("/dashboard")
 
+  await quietly(
+    notifyNewPublicBookingTelegram({
+      appointments: createdAppointments.map((appointment, index) => ({
+        ...appointment,
+        customer,
+        vehicle,
+        serviceTemplate: orderedServices[index],
+      })),
+    })
+  )
+
   return NextResponse.json({
     success: true,
     message:
-      "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no telemovel indicado ou por email se nao tiver telemovel.",
+      "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no email indicado.",
   })
 }

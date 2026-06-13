@@ -2,7 +2,9 @@ import Link from "next/link"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus } from "@prisma/client"
-import { CalendarDays, CheckCircle, Clock, Plus, XCircle } from "lucide-react"
+import { CalendarDays, CheckCircle, Clock, XCircle } from "lucide-react"
+import { AgendaCreateForm } from "@/components/agenda-create-form"
+import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -112,22 +114,32 @@ async function updateStatus(formData: FormData) {
 
   if (!id || !Object.values(AppointmentStatus).includes(status)) return
 
-  await prisma.appointment.update({
-    where: { id },
-    data: { status },
-  })
+  await updateAppointmentStatusWithStock(id, status)
 
   revalidatePath("/agenda")
   revalidatePath(`/agenda/${id}`)
   revalidatePath("/dashboard")
   revalidatePath("/marcar")
+  revalidatePath("/stock")
+  revalidatePath("/analytics")
 }
 
 export default async function AgendaPage() {
   const [customers, vehicles, services, appointments] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.vehicle.findMany({
-      include: { customer: true },
+      select: {
+        id: true,
+        brand: true,
+        model: true,
+        plate: true,
+        customerId: true,
+        customer: {
+          select: {
+            name: true,
+          },
+        },
+      },
       orderBy: { createdAt: "desc" },
     }),
     prisma.serviceTemplate.findMany({
@@ -181,108 +193,12 @@ export default async function AgendaPage() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-        <form
-          action={createAppointment}
-          className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
-        >
-          <div className="mb-5 flex items-center gap-3">
-            <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
-              <Plus className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold">Nova marcacao</h2>
-              <p className="text-sm text-zinc-400">Escolhe um ou varios servicos</p>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Cliente
-              <select
-                name="customerId"
-                required
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-              >
-                <option value="">Selecionar cliente</option>
-                {customers.map((customer) => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Carro
-              <select
-                name="vehicleId"
-                required
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-              >
-                <option value="">Selecionar carro</option>
-                {vehicles.map((vehicle) => (
-                  <option key={vehicle.id} value={vehicle.id}>
-                    {vehicle.brand} {vehicle.model} · {vehicle.plate} · {vehicle.customer.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <span className="text-sm font-semibold">Servicos</span>
-                <span className="text-xs text-zinc-500">Seleciona varios</span>
-              </div>
-
-              <div className="space-y-2">
-                {services.map((service) => (
-                  <label
-                    key={service.id}
-                    className="flex items-center gap-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      name="serviceIds"
-                      value={service.id}
-                      className="h-4 w-4 accent-red-300"
-                    />
-                    <span>
-                      <span className="block font-semibold">{service.name}</span>
-                      <span className="text-xs text-zinc-400">
-                        {service.durationMinutes}min
-                      </span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Inicio
-              <input
-                name="date"
-                type="datetime-local"
-                required
-                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-              />
-            </label>
-
-            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Notas
-              <textarea
-                name="notes"
-                rows={4}
-                className="mt-2 w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                placeholder="Notas internas"
-              />
-            </label>
-          </div>
-
-          <button className="mt-5 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
-            Guardar marcacao
-          </button>
-        </form>
-
+        <AgendaCreateForm
+          customers={customers}
+          vehicles={vehicles}
+          services={services}
+          createAppointment={createAppointment}
+        />
         <div className="space-y-4">
           <div className="overflow-hidden rounded-3xl border border-red-400/20 bg-red-500/5">
             <div className="flex items-center justify-between gap-3 border-b border-red-400/20 p-4 sm:p-5">

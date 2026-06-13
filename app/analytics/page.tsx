@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react"
+import { getProductStockValue } from "@/lib/product-stock"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -169,7 +170,7 @@ export default async function AnalyticsPage() {
     .filter((expense) => expense.createdAt >= monthStart)
     .reduce((sum, expense) => sum + expense.amount, 0)
   const stockValue = products.reduce(
-    (sum, product) => sum + product.stock * product.price,
+    (sum, product) => sum + getProductStockValue(product),
     0
   )
   const lowStockCount = products.filter(

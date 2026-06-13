@@ -23,7 +23,8 @@ type NotificationPayload = {
   latestRequest: LatestRequest | null
 }
 
-const STORAGE_KEY = "famadetail:last-public-booking-request"
+const LAST_SEEN_KEY = "famadetail:last-public-booking-request"
+const DISMISSED_KEY = "famadetail:dismissed-public-booking-request"
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("pt-PT", {
@@ -62,23 +63,25 @@ export function PublicBookingNotifier() {
         return
       }
 
-      const storedLastSeen = localStorage.getItem(STORAGE_KEY)
+      const storedLastSeen = localStorage.getItem(LAST_SEEN_KEY)
+      const dismissedRequest = localStorage.getItem(DISMISSED_KEY)
 
       if (!initialized.current) {
         initialized.current = true
         lastSeen.current = storedLastSeen || nextRequest.id
 
         if (!storedLastSeen) {
-          localStorage.setItem(STORAGE_KEY, nextRequest.id)
+          localStorage.setItem(LAST_SEEN_KEY, nextRequest.id)
         }
 
         setLatestRequest(nextRequest)
+        setShowPopup(dismissedRequest !== nextRequest.id)
         return
       }
 
       if (nextRequest.id !== lastSeen.current) {
         lastSeen.current = nextRequest.id
-        localStorage.setItem(STORAGE_KEY, nextRequest.id)
+        localStorage.setItem(LAST_SEEN_KEY, nextRequest.id)
         setLatestRequest(nextRequest)
         setShowPopup(true)
 
@@ -113,6 +116,14 @@ export function PublicBookingNotifier() {
     setNotificationPermission(permission)
   }
 
+  function dismissPopup() {
+    if (latestRequest) {
+      localStorage.setItem(DISMISSED_KEY, latestRequest.id)
+    }
+
+    setShowPopup(false)
+  }
+
   if (!showPopup || !latestRequest) {
     return null
   }
@@ -137,7 +148,7 @@ export function PublicBookingNotifier() {
 
             <button
               type="button"
-              onClick={() => setShowPopup(false)}
+              onClick={dismissPopup}
               className="rounded-full p-1 text-zinc-500 transition hover:bg-white/10 hover:text-white"
               aria-label="Fechar notificacao"
             >

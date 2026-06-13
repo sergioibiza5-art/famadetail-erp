@@ -14,6 +14,7 @@ import {
   Users,
   Wrench,
   BarChart3,
+  Receipt,
 } from "lucide-react"
 
 const links = [
@@ -56,6 +57,11 @@ const links = [
     href: "/financeiro",
     label: "Financeiro",
     icon: WalletCards,
+  },
+  {
+    href: "/despesas",
+    label: "Despesas",
+    icon: Receipt,
   },
   {
     href: "/settings",

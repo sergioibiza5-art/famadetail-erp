@@ -39,6 +39,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState("")
+  const [submitted, setSubmitted] = useState(false)
   const [needsPickup, setNeedsPickup] = useState("NO")
 
   const selectedSlot = useMemo(
@@ -101,6 +102,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
     event.preventDefault()
     setSubmitting(true)
     setMessage("")
+    setSubmitted(false)
 
     const form = event.currentTarget
     const formData = new FormData(form)
@@ -126,8 +128,9 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       setSelectedServiceIds(services[0]?.id ? [services[0].id] : [])
       setMessage(
         data.message ||
-          "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no telemovel indicado ou por email se nao tiver telemovel."
+          "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no email indicado."
       )
+      setSubmitted(true)
     } finally {
       setSubmitting(false)
     }
@@ -153,6 +156,21 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       </div>
 
       <div className="space-y-4 p-4 sm:p-5">
+        {submitted && (
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
+              <div>
+                <p className="font-semibold">Marcacao submetida com sucesso.</p>
+                <p className="mt-1 text-emerald-100/80">
+                  O pedido ficou pendente na agenda da FamaDetail. A confirmacao
+                  segue para o email indicado depois de ser revista.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -298,14 +316,16 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
           <input
             name="email"
             type="email"
-            placeholder="Email se nao indicar telemovel"
+            placeholder="Email para confirmacao"
+            required
             className="w-full rounded-2xl border border-white/10 bg-[#121214] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-red-400"
           />
         </label>
 
-        <p className="text-xs text-zinc-500">
-          Indique pelo menos um contacto para receber a confirmacao.
-        </p>
+        <div className="rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm text-red-50">
+          A confirmacao da marcacao e o aviso quando o veiculo estiver pronto
+          seguem para este email.
+        </div>
 
         <div className="grid gap-4 sm:grid-cols-3">
           <label className="block">
