@@ -5,10 +5,14 @@ import { WorkerAccount } from "@prisma/client"
 import { ArrowLeft, CalendarDays, Euro, User, WalletCards } from "lucide-react"
 import {
   accountLabel,
+  creditMoney,
   formatMoney,
   getPaidAmount,
   getPaymentState,
+  isMoneyPaid,
+  missingMoney,
   payWorkerAccount,
+  roundMoney,
 } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
@@ -80,18 +84,18 @@ export default async function FinanceAccountPage({ params }: Props) {
     },
   })
 
-  const total = splits.reduce((sum, split) => sum + split.amount, 0)
-  const paid = splits.reduce((sum, split) => sum + getPaidAmount(split), 0)
+  const total = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
+  const paid = splits.reduce((sum, split) => roundMoney(sum + getPaidAmount(split)), 0)
   const pending = splits.reduce((sum, split) => {
     const paidAmount = getPaidAmount(split)
-    return sum + Math.max(0, split.amount - paidAmount)
+    return roundMoney(sum + missingMoney(split.amount, paidAmount))
   }, 0)
   const credit = splits.reduce((sum, split) => {
     const paidAmount = getPaidAmount(split)
-    return sum + Math.max(0, paidAmount - split.amount)
+    return roundMoney(sum + creditMoney(paidAmount, split.amount))
   }, 0)
-  const paidServices = splits.filter((split) => getPaidAmount(split) >= split.amount)
-  const pendingServices = splits.filter((split) => getPaidAmount(split) < split.amount)
+  const paidServices = splits.filter((split) => isMoneyPaid(getPaidAmount(split), split.amount))
+  const pendingServices = splits.filter((split) => !isMoneyPaid(getPaidAmount(split), split.amount))
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -211,8 +215,8 @@ export default async function FinanceAccountPage({ params }: Props) {
           ) : (
             splits.map((split) => {
               const paidAmount = getPaidAmount(split)
-              const missing = Math.max(0, split.amount - paidAmount)
-              const extra = Math.max(0, paidAmount - split.amount)
+              const missing = missingMoney(split.amount, paidAmount)
+              const extra = creditMoney(paidAmount, split.amount)
               const state = getPaymentState(split)
 
               return (

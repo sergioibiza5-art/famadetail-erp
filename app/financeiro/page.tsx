@@ -2,7 +2,14 @@ import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { CalendarDays, Euro, User, WalletCards } from "lucide-react"
 import { WorkerAccount } from "@prisma/client"
-import { getPaidAmount, payWorkerAccount } from "@/lib/finance"
+import {
+  creditMoney,
+  getPaidAmount,
+  isMoneyPaid,
+  missingMoney,
+  payWorkerAccount,
+  roundMoney,
+} from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -77,19 +84,19 @@ export default async function FinancePage() {
 
   const totals = Object.values(WorkerAccount).map((account) => {
     const accountSplits = splits.filter((split) => split.account === account)
-    const total = accountSplits.reduce((sum, split) => sum + split.amount, 0)
+    const total = accountSplits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
     const paid = accountSplits.reduce(
       (sum, split) =>
-        sum + getPaidAmount(split),
+        roundMoney(sum + getPaidAmount(split)),
       0
     )
     const pending = accountSplits.reduce((sum, split) => {
       const paidAmount = getPaidAmount(split)
-      return sum + Math.max(0, split.amount - paidAmount)
+      return roundMoney(sum + missingMoney(split.amount, paidAmount))
     }, 0)
     const credit = accountSplits.reduce((sum, split) => {
       const paidAmount = getPaidAmount(split)
-      return sum + Math.max(0, paidAmount - split.amount)
+      return roundMoney(sum + creditMoney(paidAmount, split.amount))
     }, 0)
 
     return {
@@ -103,23 +110,23 @@ export default async function FinancePage() {
 
   const pendingSplits = splits.filter((split) => {
     const paidAmount = getPaidAmount(split)
-    return paidAmount < split.amount
+    return !isMoneyPaid(paidAmount, split.amount)
   })
   const completedServiceIds = new Set(splits.map((split) => split.appointmentId))
   const totalToReceive = pendingSplits.reduce((sum, split) => {
     const paidAmount = getPaidAmount(split)
-    return sum + Math.max(0, split.amount - paidAmount)
+    return roundMoney(sum + missingMoney(split.amount, paidAmount))
   }, 0)
   const totalReceived = splits.reduce(
     (sum, split) =>
-      sum + getPaidAmount(split),
+      roundMoney(sum + getPaidAmount(split)),
     0
   )
   const totalCredit = splits.reduce((sum, split) => {
     const paidAmount = getPaidAmount(split)
-    return sum + Math.max(0, paidAmount - split.amount)
+    return roundMoney(sum + creditMoney(paidAmount, split.amount))
   }, 0)
-  const totalGenerated = splits.reduce((sum, split) => sum + split.amount, 0)
+  const totalGenerated = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
 
   const summaryCards = [
     {

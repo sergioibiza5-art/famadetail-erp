@@ -1,5 +1,6 @@
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { randomUUID } from "node:crypto"
+import { notFound, redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus, PaymentMethod, WorkerAccount } from "@prisma/client"
 import {
@@ -10,14 +11,22 @@ import {
   CreditCard,
   Euro,
   Mail,
+  Plus,
   Save,
+  Trash2,
   User,
   Users,
 } from "lucide-react"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
-import { redistributeAccountCredit } from "@/lib/finance"
+import {
+  getPaidAmount,
+  isMoneyPaid,
+  missingMoney,
+  redistributeAccountCredit,
+  roundMoney,
+} from "@/lib/finance"
 import { quietly, sendVehicleReadyEmail } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 
@@ -85,7 +94,118 @@ function workerLabel(worker: WorkerAccount) {
 }
 
 function getSplitPaidAmount(split: { paidAmount: number; isPaid: boolean; amount: number }) {
-  return split.paidAmount || (split.isPaid ? split.amount : 0)
+  return getPaidAmount(split)
+}
+
+const defaultFinancePercentages: Record<WorkerAccount, number> = {
+  [WorkerAccount.JOAO]: 50,
+  [WorkerAccount.ADRIANA]: 25,
+  [WorkerAccount.FAMADETAIL]: 25,
+}
+
+function getDefaultFinancePercentage(account: WorkerAccount) {
+  return defaultFinancePercentages[account] ?? 0
+}
+
+function getFinancePercentagesFromSplits(
+  splits: Array<{ account: WorkerAccount; percentage: number }>
+) {
+  return Object.values(WorkerAccount).map((account) => {
+    const split = splits.find((item) => item.account === account)
+
+    return {
+      account,
+      percentage: split ? split.percentage : getDefaultFinancePercentage(account),
+    }
+  })
+}
+
+async function upsertAppointmentFinance(
+  appointmentId: string,
+  price: number,
+  percentages: Array<{ account: WorkerAccount; percentage: number }>
+) {
+  const existingSplits = await prisma.financialSplit.findMany({
+    where: { appointmentId },
+  })
+  const workerAccounts = percentages
+    .filter((item) => item.account !== WorkerAccount.FAMADETAIL && item.percentage > 0)
+    .map((item) => item.account)
+
+  await prisma.$transaction([
+    prisma.appointmentWorker.deleteMany({ where: { appointmentId } }),
+    ...workerAccounts.map((worker) =>
+      prisma.appointmentWorker.create({
+        data: {
+          appointmentId,
+          worker,
+        },
+      })
+    ),
+    ...percentages.map(({ account, percentage }) => {
+      const existing = existingSplits.find((split) => split.account === account)
+      const amount = roundMoney((price * percentage) / 100)
+      const paidAmount = existing ? getSplitPaidAmount(existing) : 0
+
+      return prisma.financialSplit.upsert({
+        where: {
+          appointmentId_account: {
+            appointmentId,
+            account,
+          },
+        },
+        update: {
+          amount,
+          percentage,
+          paidAmount,
+          isPaid: isMoneyPaid(paidAmount, amount),
+          paidAt: isMoneyPaid(paidAmount, amount) && amount > 0 ? new Date() : null,
+        },
+        create: {
+          appointmentId,
+          account,
+          amount,
+          percentage,
+        },
+      })
+    }),
+  ])
+}
+
+async function normalizeAppointmentGroup(groupId: string) {
+  const appointments = await prisma.appointment.findMany({
+    where: { groupId },
+    orderBy: { date: "asc" },
+  })
+
+  if (appointments.length === 0) return null
+
+  if (appointments.length === 1) {
+    await prisma.appointment.update({
+      where: { id: appointments[0].id },
+      data: {
+        groupId: null,
+        serviceIndex: null,
+        serviceTotal: null,
+      },
+    })
+
+    return appointments[0].id
+  }
+
+  await prisma.$transaction(
+    appointments.map((appointment, index) =>
+      prisma.appointment.update({
+        where: { id: appointment.id },
+        data: {
+          serviceIndex: index + 1,
+          serviceTotal: appointments.length,
+        },
+      })
+    )
+  )
+
+  return appointments[0].id
 }
 
 function getSplitPercentage({
@@ -99,9 +219,7 @@ function getSplitPercentage({
 }) {
   const split = splits.find((item) => item.account === account)
   if (!split) {
-    if (account === WorkerAccount.JOAO) return 50
-    if (account === WorkerAccount.FAMADETAIL) return 50
-    return 0
+    return getDefaultFinancePercentage(account)
   }
 
   if (split.percentage > 0) return split.percentage
@@ -244,7 +362,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
             const existing = item.financialSplits.find(
               (split) => split.account === account
             )
-            const amount = (price * percentage) / 100
+            const amount = roundMoney((price * percentage) / 100)
             const paidAmount = existing ? getSplitPaidAmount(existing) : 0
 
             return prisma.financialSplit.upsert({
@@ -258,8 +376,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
                 amount,
                 percentage,
                 paidAmount,
-                isPaid: paidAmount >= amount,
-                paidAt: paidAmount >= amount && amount > 0 ? new Date() : null,
+                isPaid: isMoneyPaid(paidAmount, amount),
+                paidAt: isMoneyPaid(paidAmount, amount) && amount > 0 ? new Date() : null,
               },
               create: {
                 appointmentId: item.id,
@@ -304,10 +422,175 @@ export default async function AppointmentDetailPage({ params }: Props) {
     revalidatePath(`/agenda/${id}`)
   }
 
+  async function updateAppointmentService(formData: FormData) {
+    "use server"
+
+    const appointmentId = String(formData.get("appointmentId") || "")
+    const serviceTemplateId = String(formData.get("serviceTemplateId") || "")
+
+    if (!appointmentId || !serviceTemplateId) return
+
+    const [targetAppointment, serviceTemplate] = await Promise.all([
+      prisma.appointment.findUnique({
+        where: { id: appointmentId },
+        include: { financialSplits: true },
+      }),
+      prisma.serviceTemplate.findUnique({ where: { id: serviceTemplateId } }),
+    ])
+
+    if (!targetAppointment || !serviceTemplate) return
+
+    const endDate = new Date(
+      targetAppointment.date.getTime() + serviceTemplate.durationMinutes * 60000
+    )
+    const percentages = getFinancePercentagesFromSplits(targetAppointment.financialSplits)
+
+    await prisma.appointment.update({
+      where: { id: appointmentId },
+      data: {
+        title: serviceTemplate.name,
+        serviceTemplateId: serviceTemplate.id,
+        endDate,
+      },
+    })
+
+    await upsertAppointmentFinance(
+      appointmentId,
+      serviceTemplate.price,
+      percentages
+    )
+    await Promise.all(
+      Object.values(WorkerAccount).map((account) =>
+        redistributeAccountCredit(account)
+      )
+    )
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+    revalidatePath("/analytics")
+  }
+
+  async function addAppointmentService(formData: FormData) {
+    "use server"
+
+    const serviceTemplateId = String(formData.get("serviceTemplateId") || "")
+    if (!serviceTemplateId) return
+
+    const [baseAppointment, serviceTemplate] = await Promise.all([
+      prisma.appointment.findUnique({
+        where: { id },
+        include: { financialSplits: true },
+      }),
+      prisma.serviceTemplate.findUnique({ where: { id: serviceTemplateId } }),
+    ])
+
+    if (!baseAppointment || !serviceTemplate) return
+
+    let targetGroupId = baseAppointment.groupId
+    if (!targetGroupId) {
+      targetGroupId = randomUUID()
+      await prisma.appointment.update({
+        where: { id: baseAppointment.id },
+        data: { groupId: targetGroupId },
+      })
+    }
+
+    const groupedItems = await prisma.appointment.findMany({
+      where: { groupId: targetGroupId },
+      include: { financialSplits: true },
+      orderBy: { date: "asc" },
+    })
+    const lastItem = groupedItems[groupedItems.length - 1] || baseAppointment
+    const startDate = lastItem.endDate || lastItem.date
+    const endDate = new Date(startDate.getTime() + serviceTemplate.durationMinutes * 60000)
+    const percentages = getFinancePercentagesFromSplits(
+      groupedItems.flatMap((item) => item.financialSplits)
+    )
+
+    const created = await prisma.appointment.create({
+      data: {
+        title: serviceTemplate.name,
+        notes: baseAppointment.notes,
+        date: startDate,
+        endDate,
+        status: baseAppointment.status,
+        customerId: baseAppointment.customerId,
+        vehicleId: baseAppointment.vehicleId,
+        serviceTemplateId: serviceTemplate.id,
+        isPaid: baseAppointment.isPaid,
+        paymentMethod: baseAppointment.paymentMethod,
+        groupId: targetGroupId,
+      },
+    })
+
+    await normalizeAppointmentGroup(targetGroupId)
+    await upsertAppointmentFinance(created.id, serviceTemplate.price, percentages)
+    await Promise.all(
+      Object.values(WorkerAccount).map((account) =>
+        redistributeAccountCredit(account)
+      )
+    )
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+    revalidatePath("/analytics")
+  }
+
+  async function deleteAppointmentService(formData: FormData) {
+    "use server"
+
+    const appointmentId = String(formData.get("appointmentId") || "")
+    if (!appointmentId) return
+
+    const targetAppointment = await prisma.appointment.findUnique({
+      where: { id: appointmentId },
+      select: { id: true, groupId: true },
+    })
+
+    if (!targetAppointment) return
+
+    await prisma.$transaction([
+      prisma.stockMovement.deleteMany({ where: { appointmentId } }),
+      prisma.vehiclePhoto.updateMany({
+        where: { appointmentId },
+        data: { appointmentId: null },
+      }),
+      prisma.appointment.delete({ where: { id: appointmentId } }),
+    ])
+
+    const nextAppointmentId = targetAppointment.groupId
+      ? await normalizeAppointmentGroup(targetAppointment.groupId)
+      : null
+
+    await Promise.all(
+      Object.values(WorkerAccount).map((account) =>
+        redistributeAccountCredit(account)
+      )
+    )
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+    revalidatePath("/analytics")
+
+    if (appointmentId === id) {
+      redirect(nextAppointmentId ? `/agenda/${nextAppointmentId}` : "/agenda")
+    }
+  }
+
+  const allServices = await prisma.serviceTemplate.findMany({
+    where: { isActive: true },
+    orderBy: { name: "asc" },
+  })
   const beforePhotos = appointment.photos.filter((photo) => photo.type === "BEFORE")
   const afterPhotos = appointment.photos.filter((photo) => photo.type === "AFTER")
   const totalPrice = groupedAppointments.reduce(
-    (sum, item) => sum + (item.serviceTemplate?.price || 0),
+    (sum, item) => roundMoney(sum + (item.serviceTemplate?.price || 0)),
     0
   )
   const financeSplits = groupedAppointments.flatMap((item) =>
@@ -316,20 +599,29 @@ export default async function AppointmentDetailPage({ params }: Props) {
       appointmentTitle: item.title,
     }))
   )
-  const financeByAccount = Object.values(WorkerAccount).map((account) => ({
-    account,
-    percentage: getSplitPercentage({
+  const financeByAccount = Object.values(WorkerAccount).map((account) => {
+    const percentage = getSplitPercentage({
       account,
       splits: financeSplits,
       total: totalPrice,
-    }),
-    amount: financeSplits
+    })
+    const existingAmount = financeSplits
       .filter((split) => split.account === account)
-      .reduce((sum, split) => sum + split.amount, 0),
-    paid: financeSplits
+      .reduce((sum, split) => roundMoney(sum + split.amount), 0)
+    const paid = financeSplits
       .filter((split) => split.account === account)
-      .reduce((sum, split) => sum + getSplitPaidAmount(split), 0),
-  }))
+      .reduce((sum, split) => roundMoney(sum + getSplitPaidAmount(split)), 0)
+
+    return {
+      account,
+      percentage,
+      amount:
+        existingAmount > 0
+          ? existingAmount
+          : roundMoney((totalPrice * percentage) / 100),
+      paid,
+    }
+  })
   const totalFinancePercentage = financeByAccount.reduce(
     (sum, split) => sum + split.percentage,
     0
@@ -527,7 +819,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   </span>
                   <span className="mt-2 block text-xs text-zinc-500">
                     Pago: {formatMoney(split.paid)} · Falta:{" "}
-                    {formatMoney(Math.max(0, split.amount - split.paid))}
+                    {formatMoney(missingMoney(split.amount, split.paid))}
                   </span>
                 </label>
               ))}
@@ -607,15 +899,37 @@ export default async function AppointmentDetailPage({ params }: Props) {
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
-            <div className="border-b border-white/10 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">Servicos da marcacao</h2>
-              <p className="text-sm text-zinc-400">Inicio e conclusao individual</p>
+            <div className="grid gap-3 border-b border-white/10 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-end">
+              <div>
+                <h2 className="text-lg font-semibold">Servicos da marcacao</h2>
+                <p className="text-sm text-zinc-400">
+                  Edita, acrescenta ou remove servicos individualmente.
+                </p>
+              </div>
+              <form action={addAppointmentService} className="flex flex-col gap-2 sm:flex-row">
+                <select
+                  name="serviceTemplateId"
+                  required
+                  className="min-h-11 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                >
+                  <option value="">Adicionar servico</option>
+                  {allServices.map((service) => (
+                    <option key={service.id} value={service.id}>
+                      {service.name} - {formatMoney(service.price)}
+                    </option>
+                  ))}
+                </select>
+                <button className="inline-flex min-h-11 items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-2 text-xs font-black text-black transition hover:bg-white">
+                  <Plus className="h-4 w-4" />
+                  Adicionar
+                </button>
+              </form>
             </div>
             <div className="divide-y divide-white/10">
               {groupedAppointments.map((item, index) => (
                 <div
                   key={item.id}
-                  className="grid gap-3 p-4 lg:grid-cols-[1fr_100px_100px_110px]"
+                  className="grid gap-3 p-4 xl:grid-cols-[1fr_100px_100px_110px_260px]"
                 >
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-red-500/10 text-sm font-black text-red-200">
@@ -641,6 +955,33 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   <div>
                     <p className="text-xs uppercase tracking-wider text-zinc-500">Estado</p>
                     <p className="mt-1 font-semibold">{statusLabel(item.status)}</p>
+                  </div>
+                  <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
+                    <form action={updateAppointmentService} className="flex flex-1 gap-2">
+                      <input type="hidden" name="appointmentId" value={item.id} />
+                      <select
+                        name="serviceTemplateId"
+                        defaultValue={item.serviceTemplateId || ""}
+                        required
+                        className="min-h-10 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-red-300/60"
+                      >
+                        {allServices.map((service) => (
+                          <option key={service.id} value={service.id}>
+                            {service.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="rounded-2xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-zinc-200 transition hover:bg-white/10">
+                        Guardar
+                      </button>
+                    </form>
+                    <form action={deleteAppointmentService}>
+                      <input type="hidden" name="appointmentId" value={item.id} />
+                      <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-red-300/20 bg-red-500/10 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 sm:w-auto">
+                        <Trash2 className="h-4 w-4" />
+                        Remover
+                      </button>
+                    </form>
                   </div>
                 </div>
               ))}
