@@ -1,7 +1,6 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { notFound, redirect } from "next/navigation"
-import { VehicleStatus } from "@prisma/client"
 import { ArrowLeft, CalendarDays, Car, ImageIcon, Save, Trash2, User } from "lucide-react"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
@@ -20,23 +19,6 @@ function formatDate(value: Date) {
   }).format(value)
 }
 
-function statusLabel(status: VehicleStatus) {
-  switch (status) {
-    case "WAITING":
-      return "Em espera"
-    case "WAITING_BEFORE_PHOTOS":
-      return "A aguardar fotos antes"
-    case "STARTED":
-      return "Iniciado"
-    case "COMPLETED":
-      return "Concluido"
-    case "WAITING_AFTER_PHOTOS":
-      return "A aguardar fotos depois"
-    default:
-      return status
-  }
-}
-
 async function updateVehicle(formData: FormData) {
   "use server"
 
@@ -47,18 +29,10 @@ async function updateVehicle(formData: FormData) {
   const plate = String(formData.get("plate") || "").trim().toUpperCase()
   const color = String(formData.get("color") || "").trim()
   const yearValue = String(formData.get("year") || "").trim()
-  const status = String(formData.get("status") || "") as VehicleStatus
   const notes = String(formData.get("notes") || "").trim()
   const year = yearValue ? Number(yearValue) : null
 
-  if (
-    !vehicleId ||
-    !customerId ||
-    !brand ||
-    !model ||
-    !plate ||
-    !Object.values(VehicleStatus).includes(status)
-  ) {
+  if (!vehicleId || !customerId || !brand || !model || !plate) {
     return
   }
 
@@ -71,7 +45,6 @@ async function updateVehicle(formData: FormData) {
       plate,
       color: color || null,
       year: Number.isFinite(year) ? year : null,
-      status,
       notes: notes || null,
     },
   })
@@ -158,7 +131,7 @@ export default async function VehicleDetailPage({ params }: Props) {
         Voltar aos carros
       </Link>
 
-      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+      <div className="mb-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
             Historico do carro
@@ -171,9 +144,6 @@ export default async function VehicleDetailPage({ params }: Props) {
           </p>
         </div>
 
-        <span className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200">
-          {statusLabel(vehicle.status)}
-        </span>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
@@ -226,7 +196,7 @@ export default async function VehicleDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Editar carro</h2>
-                <p className="text-sm text-zinc-400">Atualiza dados ou estado</p>
+                <p className="text-sm text-zinc-400">Atualiza os dados do veiculo</p>
               </div>
             </div>
 
@@ -297,21 +267,6 @@ export default async function VehicleDetailPage({ params }: Props) {
                   />
                 </label>
               </div>
-
-              <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Estado
-                <select
-                  name="status"
-                  defaultValue={vehicle.status}
-                  className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
-                >
-                  {Object.values(VehicleStatus).map((status) => (
-                    <option key={status} value={status}>
-                      {statusLabel(status)}
-                    </option>
-                  ))}
-                </select>
-              </label>
 
               <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
                 Notas

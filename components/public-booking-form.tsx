@@ -30,9 +30,7 @@ function getToday() {
 }
 
 export function PublicBookingForm({ services, pickupEnabled }: Props) {
-  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>(
-    services[0]?.id ? [services[0].id] : []
-  )
+  const [selectedServiceIds, setSelectedServiceIds] = useState<string[]>([])
   const [date, setDate] = useState(getToday())
   const [slots, setSlots] = useState<Slot[]>([])
   const [slot, setSlot] = useState("")
@@ -125,7 +123,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       form.reset()
       setNeedsPickup("NO")
       setSlot("")
-      setSelectedServiceIds(services[0]?.id ? [services[0].id] : [])
+      setSelectedServiceIds([])
       setMessage(
         data.message ||
           "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no email indicado."

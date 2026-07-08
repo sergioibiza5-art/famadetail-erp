@@ -5,6 +5,7 @@ import {
   Car,
   CheckCircle,
   Euro,
+  Package,
   Users,
   Wrench,
 } from "lucide-react"
@@ -62,6 +63,7 @@ export default async function DashboardPage() {
     activeAppointmentCandidates,
     completedAppointments,
     completedMetrics,
+    productsForStockCheck,
   ] = await Promise.all([
     prisma.customer.count(),
     prisma.vehicle.count(),
@@ -124,6 +126,16 @@ export default async function DashboardPage() {
         },
       },
     }),
+    prisma.product.findMany({
+      where: {
+        minStock: {
+          gt: 0,
+        },
+      },
+      orderBy: {
+        name: "asc",
+      },
+    }),
   ])
 
   const customerRequestIds = new Set(
@@ -131,6 +143,14 @@ export default async function DashboardPage() {
   )
   const activeAppointments = activeAppointmentCandidates
     .filter((appointment) => !customerRequestIds.has(appointment.id))
+  const lowStockProducts = productsForStockCheck
+    .filter((product) => product.stock <= product.minStock)
+    .sort((a, b) => {
+      const aMissing = a.minStock - a.stock
+      const bMissing = b.minStock - b.stock
+
+      return bMissing - aMissing
+    })
 
   const paidRevenue = completedMetrics.reduce(
     (sum, appointment) =>
@@ -163,6 +183,12 @@ export default async function DashboardPage() {
       value: completedMetrics.length,
       detail: "Servicos terminados",
       icon: CheckCircle,
+    },
+    {
+      label: "Stock baixo",
+      value: lowStockProducts.length,
+      detail: "Produto(s) a comprar",
+      icon: Package,
     },
     {
       label: "Pago",
@@ -202,7 +228,7 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {cards.map((card) => {
           const Icon = card.icon
 
@@ -277,6 +303,62 @@ export default async function DashboardPage() {
                 </div>
               </Link>
             ))}
+          </div>
+        </div>
+      )}
+
+      {lowStockProducts.length > 0 && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-amber-400/20 bg-amber-500/5">
+          <div className="border-b border-amber-400/20 p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold">Produtos com stock baixo</h2>
+                <p className="text-sm text-zinc-400">
+                  Lista rapida do que precisa de comprar.
+                </p>
+              </div>
+
+              <Link
+                href="/stock"
+                className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/20"
+              >
+                Abrir stock
+              </Link>
+            </div>
+          </div>
+
+          <div className="divide-y divide-amber-400/10">
+            {lowStockProducts.slice(0, 8).map((product) => {
+              const missing = Math.max(0, product.minStock - product.stock)
+
+              return (
+                <Link
+                  key={product.id}
+                  href={`/stock/${product.id}`}
+                  className="grid gap-3 p-4 transition hover:bg-white/5 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-200">
+                    <Package className="h-5 w-5" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-white">{product.name}</p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      Minimo: {product.minStock} {product.unit || "un"}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
+                    <p className="text-sm font-semibold text-amber-100">
+                      {product.stock} {product.unit || "un"}
+                    </p>
+                    <p className="mt-1 w-fit rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200 sm:ml-auto">
+                      Comprar {missing} {product.unit || "un"}
+                    </p>
+                  </div>
+                </Link>
+              )
+            })}
           </div>
         </div>
       )}
