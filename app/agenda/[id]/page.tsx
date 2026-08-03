@@ -19,6 +19,7 @@ import {
 } from "lucide-react"
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
 import { PhotoGallery } from "@/components/photo-gallery"
+import { SaveSubmitButton } from "@/components/save-submit-button"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
 import { requireAdmin } from "@/lib/auth"
@@ -37,6 +38,9 @@ export const dynamic = "force-dynamic"
 
 type Props = {
   params: Promise<{ id: string }>
+  searchParams?: Promise<{
+    saved?: string
+  }>
 }
 
 function formatDate(value: Date) {
@@ -80,7 +84,7 @@ function statusLabel(status: AppointmentStatus) {
 function methodLabel(method: PaymentMethod | null) {
   if (method === "CASH") return "Numerário"
   if (method === "MBWAY") return "MB Way"
-  return "Sem metodo"
+  return "Sem método"
 }
 
 function workerLabel(worker: WorkerAccount) {
@@ -237,8 +241,20 @@ function getSplitPercentage({
   return (split.amount / total) * 100
 }
 
-export default async function AppointmentDetailPage({ params }: Props) {
+export default async function AppointmentDetailPage({ params, searchParams }: Props) {
   const { id } = await params
+  const feedback = await searchParams
+  const savedLabel =
+    feedback?.saved === "payment"
+      ? "Pagamento guardado e atualizado."
+      : feedback?.saved === "finance"
+        ? "Percentagens guardadas e valores atualizados."
+        : feedback?.saved === "appointment"
+          ? "Cliente e carro guardados no agendamento."
+          : feedback?.saved === "finance-error"
+            ? "Percentagens não guardadas. O total tem de ser 100%."
+            : null
+  const savedIsError = feedback?.saved === "finance-error"
 
   const appointment = await prisma.appointment.findUnique({
     where: { id },
@@ -310,6 +326,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
     revalidatePath("/agenda")
     revalidatePath(`/agenda/${id}`)
     revalidatePath("/dashboard")
+
+    redirect(`/agenda/${id}?saved=payment`)
   }
 
   async function updateWorkersAndFinance(formData: FormData) {
@@ -332,7 +350,9 @@ export default async function AppointmentDetailPage({ params }: Props) {
       0
     )
 
-    if (Math.abs(totalPercentage - 100) > 0.01) return
+    if (Math.abs(totalPercentage - 100) > 0.01) {
+      redirect(`/agenda/${id}?saved=finance-error`)
+    }
 
     const workerAccounts = percentages
       .filter(
@@ -416,6 +436,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
     revalidatePath(`/agenda/${id}`)
     revalidatePath("/dashboard")
     revalidatePath("/financeiro")
+
+    redirect(`/agenda/${id}?saved=finance`)
   }
 
   async function sendReadyNotification() {
@@ -437,6 +459,39 @@ export default async function AppointmentDetailPage({ params }: Props) {
     await quietly(sendVehicleReadyEmail(item))
 
     revalidatePath(`/agenda/${id}`)
+  }
+
+  async function updateAppointmentCustomerAndVehicle(formData: FormData) {
+    "use server"
+
+    await requireAdmin()
+
+    const customerId = String(formData.get("customerId") || "")
+    const vehicleId = String(formData.get("vehicleId") || "")
+
+    if (!customerId || !vehicleId) return
+
+    const [customer, vehicle] = await Promise.all([
+      prisma.customer.findUnique({ where: { id: customerId }, select: { id: true } }),
+      prisma.vehicle.findUnique({ where: { id: vehicleId }, select: { id: true } }),
+    ])
+
+    if (!customer || !vehicle) return
+
+    await prisma.appointment.updateMany({
+      where: appointmentGroupId ? { groupId: appointmentGroupId } : { id },
+      data: {
+        customerId,
+        vehicleId,
+      },
+    })
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+
+    redirect(`/agenda/${id}?saved=appointment`)
   }
 
   async function updateAppointmentService(formData: FormData) {
@@ -618,10 +673,25 @@ export default async function AppointmentDetailPage({ params }: Props) {
     }
   }
 
-  const allServices = await prisma.serviceTemplate.findMany({
-    where: { isActive: true },
-    orderBy: { name: "asc" },
-  })
+  const [allServices, allCustomers, allVehicles] = await Promise.all([
+    prisma.serviceTemplate.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+    }),
+    prisma.customer.findMany({
+      orderBy: { name: "asc" },
+    }),
+    prisma.vehicle.findMany({
+      include: {
+        customer: {
+          select: {
+            name: true,
+          },
+        },
+      },
+      orderBy: [{ brand: "asc" }, { model: "asc" }],
+    }),
+  ])
   const beforePhotos = appointment.photos.filter((photo) => photo.type === "BEFORE")
   const afterPhotos = appointment.photos.filter((photo) => photo.type === "AFTER")
   const totalPrice = groupedAppointments.reduce(
@@ -661,6 +731,18 @@ export default async function AppointmentDetailPage({ params }: Props) {
     (sum, split) => sum + split.percentage,
     0
   )
+  const lastFinanceUpdatedAt = financeSplits.reduce<Date | null>((latest, split) => {
+    if (!latest || split.updatedAt > latest) return split.updatedAt
+    return latest
+  }, null)
+  const savedAt =
+    feedback?.saved === "payment"
+      ? appointment.updatedAt
+      : feedback?.saved === "appointment"
+        ? appointment.updatedAt
+      : feedback?.saved?.startsWith("finance")
+        ? lastFinanceUpdatedAt
+        : null
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -681,7 +763,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
             {appointment.title}
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            {appointment.orderNumber || "Sem OS"} · Ficha operacional com inicio, conclusao, fotos e pagamento.
+            {appointment.orderNumber || "Sem OS"} · Ficha operacional com início, conclusão, fotos e pagamento.
           </p>
         </div>
 
@@ -697,6 +779,36 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
       <div className="grid gap-4 xl:grid-cols-[380px_1fr]">
         <div className="space-y-4">
+          {savedLabel && (
+            <div
+              className={`rounded-3xl border p-4 text-sm ${
+                savedIsError
+                  ? "border-amber-400/25 bg-amber-500/10 text-amber-100"
+                  : "border-emerald-400/25 bg-emerald-500/10 text-emerald-100"
+              }`}
+            >
+              <div className="flex items-start gap-3">
+                <CheckCircle
+                  className={`mt-0.5 h-5 w-5 ${
+                    savedIsError ? "text-amber-300" : "text-emerald-300"
+                  }`}
+                />
+                <div>
+                  <p className="font-semibold">{savedLabel}</p>
+                  <p
+                    className={`mt-1 text-xs ${
+                      savedIsError ? "text-amber-200/80" : "text-emerald-200/80"
+                    }`}
+                  >
+                    {savedAt
+                      ? `Última atualização às ${formatTime(savedAt)}.`
+                      : "Atualização feita agora."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5">
             <div className="mb-5 flex items-center gap-3">
               <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
@@ -710,11 +822,11 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
             <div className="space-y-3">
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-wider text-zinc-500">Inicio</p>
+                <p className="text-xs uppercase tracking-wider text-zinc-500">Início</p>
                 <p className="mt-2 font-semibold">{formatDate(appointment.date)}</p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs uppercase tracking-wider text-zinc-500">Conclusao</p>
+                <p className="text-xs uppercase tracking-wider text-zinc-500">Conclusão</p>
                 <p className="mt-2 font-semibold">
                   {appointment.endDate ? formatDate(appointment.endDate) : "Sem fim"}
                 </p>
@@ -769,7 +881,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Pagamento</h2>
-                <p className="text-sm text-zinc-400">Marca se ja foi pago</p>
+                <p className="text-sm text-zinc-400">Marca se já foi pago</p>
               </div>
             </div>
 
@@ -806,10 +918,17 @@ export default async function AppointmentDetailPage({ params }: Props) {
               </label>
             </div>
 
-            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
+            <div className="mt-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
+              Guardado: {appointment.isPaid ? `Pago · ${methodLabel(appointment.paymentMethod)}` : "Por pagar"}
+            </div>
+
+            <SaveSubmitButton
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white disabled:cursor-wait disabled:opacity-70"
+              pendingText="A guardar pagamento..."
+            >
               <Save className="h-4 w-4" />
               Guardar pagamento
-            </button>
+            </SaveSubmitButton>
           </form>
 
           <form
@@ -856,6 +975,9 @@ export default async function AppointmentDetailPage({ params }: Props) {
                     Pago: {formatMoney(split.paid)} · Falta:{" "}
                     {formatMoney(missingMoney(split.amount, split.paid))}
                   </span>
+                  <span className="mt-2 inline-flex rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-200">
+                    Guardado: {Number(split.percentage.toFixed(2))}%
+                  </span>
                 </label>
               ))}
             </div>
@@ -871,68 +993,124 @@ export default async function AppointmentDetailPage({ params }: Props) {
               deve ser 100%.
             </p>
 
-            <button className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
+            <SaveSubmitButton
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white disabled:cursor-wait disabled:opacity-70"
+              pendingText="A guardar percentagens..."
+            >
               <Save className="h-4 w-4" />
               Guardar percentagens
-            </button>
+            </SaveSubmitButton>
           </form>
         </div>
 
         <div className="space-y-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5">
+          <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5">
+            <form action={updateAppointmentCustomerAndVehicle}>
               <div className="mb-4 flex items-center gap-3">
                 <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
-                  <User className="h-5 w-5" />
+                  <Users className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold">Cliente</h2>
-                  <p className="text-sm text-zinc-400">{appointment.customer.phone || "Sem telefone"}</p>
+                  <h2 className="text-lg font-semibold">Cliente e carro</h2>
+                  <p className="text-sm text-zinc-400">
+                    Altera o cliente ou o carro deste agendamento.
+                  </p>
                 </div>
               </div>
-              <p className="text-xl font-semibold">{appointment.customer.name}</p>
-              <p className="mt-2 break-all text-sm text-zinc-400">
-                {appointment.customer.email || "Sem email"}
-              </p>
-              <form action={sendReadyNotification}>
-                <button
-                  disabled={!appointment.customer.email}
-                  className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-xs font-black text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+
+              <div className="grid gap-3 lg:grid-cols-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Cliente
+                  <select
+                    name="customerId"
+                    defaultValue={appointment.customerId}
+                    required
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                  >
+                    {allCustomers.map((customer) => (
+                      <option key={customer.id} value={customer.id}>
+                        {customer.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Carro
+                  <select
+                    name="vehicleId"
+                    defaultValue={appointment.vehicleId}
+                    required
+                    className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+                  >
+                    {allVehicles.map((vehicle) => (
+                      <option key={vehicle.id} value={vehicle.id}>
+                        {vehicle.brand} {vehicle.model} · {vehicle.plate} · {vehicle.customer.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
+                    <User className="h-4 w-4" />
+                    Cliente atual
+                  </p>
+                  <p className="mt-2 font-semibold">{appointment.customer.name}</p>
+                  <p className="mt-1 break-all text-sm text-zinc-400">
+                    {appointment.customer.email || appointment.customer.phone || "Sem contacto"}
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                  <p className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">
+                    <Car className="h-4 w-4" />
+                    Carro atual
+                  </p>
+                  <p className="mt-2 font-semibold">
+                    {appointment.vehicle.brand} {appointment.vehicle.model}
+                  </p>
+                  <p className="mt-1 text-sm text-zinc-400">{appointment.vehicle.plate}</p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <SaveSubmitButton
+                  className="inline-flex min-h-10 items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-2 text-xs font-black text-black transition hover:bg-white disabled:cursor-wait disabled:opacity-70"
+                  pendingText="A guardar cliente e carro..."
                 >
-                  <Mail className="h-4 w-4" />
-                  Enviar aviso: carro pronto
-                </button>
-              </form>
-              <Link
-                href={`/clientes/${appointment.customerId}`}
-                className="mt-4 inline-flex rounded-full border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"
-              >
-                Abrir cliente
-              </Link>
-            </div>
+                  <Save className="h-4 w-4" />
+                  Guardar cliente e carro
+                </SaveSubmitButton>
 
-            <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5">
-              <div className="mb-4 flex items-center gap-3">
-                <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
-                  <Car className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Carro</h2>
-                  <p className="text-sm text-zinc-400">{appointment.vehicle.plate}</p>
-                </div>
+                <Link
+                  href={`/clientes/${appointment.customerId}`}
+                  className="inline-flex min-h-10 items-center rounded-2xl border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"
+                >
+                  Abrir cliente
+                </Link>
+
+                <Link
+                  href={`/carros/${appointment.vehicleId}`}
+                  className="inline-flex min-h-10 items-center rounded-2xl border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"
+                >
+                  Abrir histórico
+                </Link>
               </div>
-              <p className="text-xl font-semibold">
-                {appointment.vehicle.brand} {appointment.vehicle.model}
-              </p>
-              <Link
-                href={`/carros/${appointment.vehicleId}`}
-                className="mt-4 inline-flex rounded-full border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"
-              >
-                Abrir histórico
-              </Link>
-            </div>
-          </div>
+            </form>
 
+            <form action={sendReadyNotification}>
+              <button
+                disabled={!appointment.customer.email}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-xs font-black text-black transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Mail className="h-4 w-4" />
+                Enviar aviso: carro pronto
+              </button>
+            </form>
+          </div>
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="grid gap-3 border-b border-white/10 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-end">
               <div>
@@ -941,11 +1119,14 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   Edita, acrescenta ou remove serviços individualmente.
                 </p>
               </div>
-              <form action={addAppointmentService} className="flex flex-col gap-2 sm:flex-row">
+              <form
+                action={addAppointmentService}
+                className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[360px] sm:flex-row"
+              >
                 <select
                   name="serviceTemplateId"
                   required
-                  className="min-h-11 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                  className="min-h-11 min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
                 >
                   <option value="">Adicionar serviço</option>
                   {allServices.map((service) => (
@@ -964,7 +1145,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
               {groupedAppointments.map((item, index) => (
                 <div
                   key={item.id}
-                  className="grid gap-3 p-4 xl:grid-cols-[1fr_100px_100px_110px_260px]"
+                  className="grid gap-3 p-4 xl:grid-cols-[minmax(260px,1fr)_90px_90px_100px_minmax(430px,520px)]"
                 >
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-red-500/10 text-sm font-black text-red-200">
@@ -981,11 +1162,11 @@ export default async function AppointmentDetailPage({ params }: Props) {
                     </div>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider text-zinc-500">Inicio</p>
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">Início</p>
                     <p className="mt-1 font-semibold">{formatTime(item.date)}</p>
                   </div>
                   <div>
-                    <p className="text-xs uppercase tracking-wider text-zinc-500">Conclusao</p>
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">Conclusão</p>
                     <p className="mt-1 font-semibold">
                       {item.endDate ? formatTime(item.endDate) : "-"}
                     </p>
@@ -994,14 +1175,14 @@ export default async function AppointmentDetailPage({ params }: Props) {
                     <p className="text-xs uppercase tracking-wider text-zinc-500">Estado</p>
                     <p className="mt-1 font-semibold">{statusLabel(item.status)}</p>
                   </div>
-                  <div className="flex flex-col gap-2 sm:flex-row xl:justify-end">
-                    <form action={updateAppointmentService} className="flex flex-1 gap-2">
+                  <div className="flex min-w-0 flex-col gap-2 sm:flex-row xl:min-w-[430px] xl:justify-end">
+                    <form action={updateAppointmentService} className="flex min-w-0 flex-1 gap-2">
                       <input type="hidden" name="appointmentId" value={item.id} />
                       <select
                         name="serviceTemplateId"
                         defaultValue={item.serviceTemplateId || ""}
                         required
-                        className="min-h-10 w-full rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-red-300/60"
+                        className="min-h-10 min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white outline-none focus:border-red-300/60"
                       >
                         {allServices.map((service) => (
                           <option key={service.id} value={service.id}>
