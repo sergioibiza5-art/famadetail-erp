@@ -83,23 +83,29 @@ export async function redistributeAccountCredit(account: WorkerAccount) {
     ],
   })
 
-  let carry = 0
+  let remainingPaid = splits.reduce(
+    (sum, split) => roundMoney(sum + getPaidAmount(split)),
+    0
+  )
 
-  for (const split of splits) {
-    const currentPaid = roundMoney(getPaidAmount(split) + carry)
-    const nextPaidAmount = roundMoney(Math.min(currentPaid, split.amount))
-    carry = creditMoney(currentPaid, split.amount)
+  for (const [index, split] of splits.entries()) {
+    const isLastSplit = index === splits.length - 1
+    const nextPaidAmount = roundMoney(
+      isLastSplit ? remainingPaid : Math.min(remainingPaid, split.amount)
+    )
+    const nextIsPaid = isMoneyPaid(nextPaidAmount, split.amount)
+    remainingPaid = roundMoney(Math.max(0, remainingPaid - nextPaidAmount))
 
     if (
       Math.abs(getPaidAmount(split) - nextPaidAmount) > 0.001 ||
-      split.isPaid !== isMoneyPaid(nextPaidAmount, split.amount)
+      split.isPaid !== nextIsPaid
     ) {
       await prisma.financialSplit.update({
         where: { id: split.id },
         data: {
           paidAmount: nextPaidAmount,
-          isPaid: isMoneyPaid(nextPaidAmount, split.amount),
-          paidAt: isMoneyPaid(nextPaidAmount, split.amount) && split.amount > 0 ? new Date() : null,
+          isPaid: nextIsPaid,
+          paidAt: nextIsPaid && split.amount > 0 ? split.paidAt ?? new Date() : null,
         },
       })
     }
@@ -153,7 +159,7 @@ export async function payWorkerAccount({
   let remainingPayment = payAll
     ? pendingTotal
     : Number.isFinite(parsedAmount) && parsedAmount > 0
-      ? Math.min(roundMoney(parsedAmount), pendingTotal)
+      ? roundMoney(parsedAmount)
       : 0
 
   remainingPayment = roundMoney(remainingPayment)
@@ -202,6 +208,21 @@ export async function payWorkerAccount({
     })
 
     remainingPayment = roundMoney(remainingPayment - amountToApply)
+  }
+
+  if (remainingPayment > 0 && splits.length > 0) {
+    const split = splits[splits.length - 1]
+    const paidAmount = getPaidAmount(split)
+    const nextPaidAmount = roundMoney(paidAmount + remainingPayment)
+
+    await prisma.financialSplit.update({
+      where: { id: split.id },
+      data: {
+        paidAmount: nextPaidAmount,
+        isPaid: isMoneyPaid(nextPaidAmount, split.amount),
+        paidAt: safePaidAt,
+      },
+    })
   }
 
   await redistributeAccountCredit(account)

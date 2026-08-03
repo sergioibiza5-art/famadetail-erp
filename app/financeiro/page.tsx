@@ -55,6 +55,8 @@ async function payAccount(formData: FormData) {
   await payWorkerAccount({ account, amountValue, payAll, method, notes, paidAtValue })
 
   revalidatePath("/financeiro")
+  revalidatePath("/financeiro/movimentos")
+  revalidatePath(`/financeiro/${account}`)
   revalidatePath("/dashboard")
   revalidatePath("/agenda")
 }

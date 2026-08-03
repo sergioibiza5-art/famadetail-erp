@@ -3,7 +3,7 @@ import type { ReactNode } from "react"
 import { ArrowLeft, CalendarDays, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { accountLabel, formatMoney } from "@/lib/finance"
+import { accountLabel, formatMoney, roundMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -57,7 +57,7 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
     orderBy: { paidAt: "desc" },
   })
 
-  const total = movements.reduce((sum, movement) => sum + movement.amount, 0)
+  const total = movements.reduce((sum, movement) => roundMoney(sum + movement.amount), 0)
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -108,77 +108,115 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
             Ainda não existem movimentos pagos.
           </div>
         ) : (
-          movements.map((movement) => (
-            <div
-              key={movement.id}
-              className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]"
-            >
-              <div className="grid gap-3 border-b border-white/10 p-4 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5">
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">
-                  <WalletCards className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="font-semibold text-white">
-                    {accountLabel(movement.account)} · {movement.notes || "Pagamento"}
-                  </p>
-                  <p className="mt-1 text-sm text-zinc-400">
-                    {methodLabel(movement.method)} · {formatDate(movement.paidAt)}
-                  </p>
-                </div>
-                <p className="text-xl font-bold text-emerald-300">
-                  {formatMoney(movement.amount)}
-                </p>
-              </div>
+          movements.map((movement) => {
+            const allocatedTotal = movement.allocations.reduce(
+              (sum, allocation) => roundMoney(sum + allocation.amount),
+              0
+            )
+            const unallocatedAmount = roundMoney(movement.amount - allocatedTotal)
 
-              <div className="divide-y divide-white/10">
-                {movement.allocations.length === 0 ? (
-                  <div className="p-4 text-sm text-zinc-500">
-                    Movimento antigo sem distribuição por serviço guardada.
+            return (
+              <div
+                key={movement.id}
+                className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]"
+              >
+                <div className="grid gap-3 border-b border-white/10 p-4 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">
+                    <WalletCards className="h-5 w-5" />
                   </div>
-                ) : (
-                  movement.allocations.map((allocation) => {
-                    const split = allocation.financialSplit
-                    const appointment = split.appointment
+                  <div>
+                    <p className="font-semibold text-white">
+                      {accountLabel(movement.account)} · {movement.notes || "Pagamento"}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {methodLabel(movement.method)} · {formatDate(movement.paidAt)}
+                    </p>
+                  </div>
+                  <p className="text-xl font-bold text-emerald-300">
+                    {formatMoney(movement.amount)}
+                  </p>
+                </div>
 
-                    return (
-                      <Link
-                        key={allocation.id}
-                        href={`/agenda/${appointment.id}`}
-                        className="grid gap-3 p-4 transition hover:bg-white/[0.03] lg:grid-cols-[160px_1fr_120px_130px] lg:items-center"
-                      >
-                        <div>
-                          <p className="text-xs uppercase tracking-wider text-zinc-500">
-                            Ordem
-                          </p>
-                          <p className="mt-1 font-semibold text-white">
-                            {appointment.orderNumber || "Sem OS"}
-                          </p>
+                <div className="divide-y divide-white/10">
+                  {movement.allocations.length === 0 && unallocatedAmount <= 0 ? (
+                    <div className="p-4 text-sm text-zinc-500">
+                      Movimento antigo sem distribuição por serviço guardada.
+                    </div>
+                  ) : (
+                    <>
+                      {movement.allocations.map((allocation) => {
+                        const split = allocation.financialSplit
+                        const appointment = split.appointment
+
+                        return (
+                          <Link
+                            key={allocation.id}
+                            href={`/agenda/${appointment.id}`}
+                            className="grid gap-3 p-4 transition hover:bg-white/[0.03] lg:grid-cols-[160px_1fr_120px_130px] lg:items-center"
+                          >
+                            <div>
+                              <p className="text-xs uppercase tracking-wider text-zinc-500">
+                                Ordem
+                              </p>
+                              <p className="mt-1 font-semibold text-white">
+                                {appointment.orderNumber || "Sem OS"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-white">
+                                {appointment.serviceTemplate?.name || appointment.title}
+                              </p>
+                              <p className="mt-1 text-sm text-zinc-400">
+                                {appointment.customer.name} · {appointment.vehicle.plate}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-zinc-400">
+                              <CalendarDays className="h-4 w-4" />
+                              {formatDate(appointment.date)}
+                            </div>
+                            <div className="text-sm">
+                              <p className="text-zinc-500">Pago neste movimento</p>
+                              <p className="font-semibold text-emerald-300">
+                                {formatMoney(allocation.amount)}
+                              </p>
+                            </div>
+                          </Link>
+                        )
+                      })}
+
+                      {unallocatedAmount > 0 && (
+                        <div className="grid gap-3 bg-emerald-500/[0.04] p-4 lg:grid-cols-[160px_1fr_120px_130px] lg:items-center">
+                          <div>
+                            <p className="text-xs uppercase tracking-wider text-zinc-500">
+                              Saldo
+                            </p>
+                            <p className="mt-1 font-semibold text-emerald-200">
+                              Pago a mais
+                            </p>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-white">
+                              Saldo a favor de {accountLabel(movement.account)}
+                            </p>
+                            <p className="mt-1 text-sm text-zinc-400">
+                              Valor pago acima dos serviços em falta neste movimento.
+                            </p>
+                          </div>
+                          <div className="text-sm text-zinc-500">-</div>
+                          <div className="text-sm">
+                            <p className="text-zinc-500">Excedente</p>
+                            <p className="font-semibold text-emerald-300">
+                              {formatMoney(unallocatedAmount)}
+                            </p>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-semibold text-white">
-                            {appointment.serviceTemplate?.name || appointment.title}
-                          </p>
-                          <p className="mt-1 text-sm text-zinc-400">
-                            {appointment.customer.name} · {appointment.vehicle.plate}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-zinc-400">
-                          <CalendarDays className="h-4 w-4" />
-                          {formatDate(appointment.date)}
-                        </div>
-                        <div className="text-sm">
-                          <p className="text-zinc-500">Pago neste movimento</p>
-                          <p className="font-semibold text-emerald-300">
-                            {formatMoney(allocation.amount)}
-                          </p>
-                        </div>
-                      </Link>
-                    )
-                  })
-                )}
+                      )}
+                    </>
+                  )}
+                </div>
               </div>
-            </div>
-          ))
+            )
+          })
         )}
       </div>
     </section>

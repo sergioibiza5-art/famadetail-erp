@@ -51,6 +51,7 @@ async function payAccount(formData: FormData) {
 
   revalidatePath("/financeiro")
   revalidatePath(`/financeiro/${account}`)
+  revalidatePath("/financeiro/movimentos")
   revalidatePath("/dashboard")
   revalidatePath("/agenda")
 }
@@ -286,30 +287,41 @@ export default async function FinanceAccountPage({ params }: Props) {
             </p>
           </div>
           <div className="divide-y divide-white/10">
-            {paymentMovements.map((movement) => (
-              <div
-                key={movement.id}
-                className="grid gap-2 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"
-              >
-                <div>
-                  <p className="font-semibold text-white">
-                    {movement.notes || "Pagamento"}
+            {paymentMovements.map((movement) => {
+              const allocatedTotal = movement.allocations.reduce(
+                (sum, allocation) => roundMoney(sum + allocation.amount),
+                0
+              )
+              const unallocatedAmount = roundMoney(movement.amount - allocatedTotal)
+
+              return (
+                <div
+                  key={movement.id}
+                  className="grid gap-2 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"
+                >
+                  <div>
+                    <p className="font-semibold text-white">
+                      {movement.notes || "Pagamento"}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      {movement.allocations.length > 0
+                        ? `${movement.allocations.length} serviço(s) associado(s)`
+                        : "Sem serviço associado"}
+                      {unallocatedAmount > 0
+                        ? ` · ${formatMoney(unallocatedAmount)} em saldo`
+                        : ""}
+                    </p>
+                  </div>
+                  <p className="font-semibold text-emerald-300">
+                    {formatMoney(movement.amount)}
                   </p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {movement.allocations.length > 0
-                      ? `${movement.allocations.length} serviço(s) associado(s)`
-                      : "Movimento antigo sem serviços associados"}
+                  <p className="text-sm text-zinc-500">
+                    {movement.method ? `${movement.method === "CASH" ? "Numerário" : "MB Way"} · ` : ""}
+                    {formatDate(movement.paidAt)}
                   </p>
                 </div>
-                <p className="font-semibold text-emerald-300">
-                  {formatMoney(movement.amount)}
-                </p>
-                <p className="text-sm text-zinc-500">
-                  {movement.method ? `${movement.method === "CASH" ? "Numerário" : "MB Way"} · ` : ""}
-                  {formatDate(movement.paidAt)}
-                </p>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}
