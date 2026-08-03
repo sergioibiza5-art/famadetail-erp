@@ -31,6 +31,7 @@ import {
 } from "@/lib/finance"
 import { quietly, sendVehicleReadyEmail } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
+import { nextServiceOrderNumber } from "@/lib/service-order"
 
 export const dynamic = "force-dynamic"
 
@@ -525,6 +526,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
     const created = await prisma.appointment.create({
       data: {
+        orderNumber: await nextServiceOrderNumber(prisma, startDate),
         title: serviceTemplate.name,
         notes: baseAppointment.notes,
         date: startDate,
@@ -662,7 +664,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
             {appointment.title}
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Ficha operacional com inicio, conclusao, fotos e pagamento.
+            {appointment.orderNumber || "Sem OS"} · Ficha operacional com inicio, conclusao, fotos e pagamento.
           </p>
         </div>
 
@@ -953,6 +955,9 @@ export default async function AppointmentDetailPage({ params }: Props) {
                     </span>
                     <div>
                       <p className="font-semibold">{item.title}</p>
+                      <p className="mt-1 text-xs font-semibold text-red-200">
+                        {item.orderNumber || "Sem OS"}
+                      </p>
                       <p className="text-sm text-zinc-400">
                         {item.serviceTemplate?.durationMinutes || 0}min
                       </p>

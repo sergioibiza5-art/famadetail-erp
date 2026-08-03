@@ -95,7 +95,24 @@ export default async function FinanceAccountPage({ params }: Props) {
     }),
     prisma.paymentMovement.findMany({
       where: { account },
-      orderBy: { createdAt: "desc" },
+      include: {
+        allocations: {
+          include: {
+            financialSplit: {
+              include: {
+                appointment: {
+                  include: {
+                    customer: true,
+                    vehicle: true,
+                    serviceTemplate: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { paidAt: "desc" },
       take: 8,
     }),
   ])
@@ -251,6 +268,13 @@ export default async function FinanceAccountPage({ params }: Props) {
           <Download className="h-4 w-4" />
           Exportar CSV desta conta
         </Link>
+        <Link
+          href={`/financeiro/movimentos?account=${account}`}
+          className="ml-2 inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+        >
+          <Download className="h-4 w-4" />
+          Ver movimentos pagos
+        </Link>
       </div>
 
       {paymentMovements.length > 0 && (
@@ -267,9 +291,16 @@ export default async function FinanceAccountPage({ params }: Props) {
                 key={movement.id}
                 className="grid gap-2 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"
               >
-                <p className="font-semibold text-white">
-                  {movement.notes || "Pagamento"}
-                </p>
+                <div>
+                  <p className="font-semibold text-white">
+                    {movement.notes || "Pagamento"}
+                  </p>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    {movement.allocations.length > 0
+                      ? `${movement.allocations.length} serviço(s) associado(s)`
+                      : "Movimento antigo sem serviços associados"}
+                  </p>
+                </div>
                 <p className="font-semibold text-emerald-300">
                   {formatMoney(movement.amount)}
                 </p>
@@ -312,6 +343,9 @@ export default async function FinanceAccountPage({ params }: Props) {
                   <div>
                     <p className="font-semibold text-white">
                       {split.appointment.serviceTemplate?.name || split.appointment.title}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-red-200">
+                      {split.appointment.orderNumber || "Sem OS"}
                     </p>
                     <p className="mt-1 text-sm text-zinc-400">
                       {split.appointment.customer.name} · {split.appointment.vehicle.brand}{" "}

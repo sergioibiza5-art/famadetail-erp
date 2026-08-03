@@ -55,6 +55,7 @@ export default async function SearchPage({ searchParams }: Props) {
           where: {
             OR: [
               { title: { contains: q, mode: "insensitive" } },
+              { orderNumber: { contains: q, mode: "insensitive" } },
               { notes: { contains: q, mode: "insensitive" } },
               { customer: { name: { contains: q, mode: "insensitive" } } },
               { vehicle: { plate: { contains: q, mode: "insensitive" } } },
@@ -154,7 +155,7 @@ export default async function SearchPage({ searchParams }: Props) {
                   {appointment.serviceTemplate?.name || appointment.title}
                 </span>
                 <span className="text-sm text-zinc-400">
-                  {appointment.customer.name} · {appointment.vehicle.plate} · {formatDate(appointment.date)}
+                  {appointment.orderNumber || "Sem OS"} · {appointment.customer.name} · {appointment.vehicle.plate} · {formatDate(appointment.date)}
                 </span>
               </ResultLink>
             ))}

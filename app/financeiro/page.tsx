@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
-import { CalendarDays, Download, Euro, User, WalletCards } from "lucide-react"
+import { CalendarDays, Download, Euro, ListChecks, User, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
 import {
@@ -186,6 +186,13 @@ export default async function FinancePage() {
           >
             <Download className="h-4 w-4" />
             Exportar CSV
+          </Link>
+          <Link
+            href="/financeiro/movimentos"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+          >
+            <ListChecks className="h-4 w-4" />
+            Movimentos pagos
           </Link>
           <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
             {formatMoney(totalToReceive)} a receber

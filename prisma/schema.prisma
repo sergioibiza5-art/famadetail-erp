@@ -78,6 +78,7 @@ model ServiceTemplate {
 
 model Appointment {
   id                String              @id @default(cuid())
+  orderNumber       String?             @unique
   title             String
   notes             String?
   date              DateTime
@@ -114,29 +115,47 @@ model AppointmentWorker {
 }
 
 model FinancialSplit {
-  id            String        @id @default(cuid())
-  account       WorkerAccount
-  amount        Float
-  percentage    Float         @default(0)
-  isPaid        Boolean       @default(false)
-  paidAt        DateTime?
-  appointmentId String
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  paidAmount    Float         @default(0)
-  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  id                 String              @id @default(cuid())
+  account            WorkerAccount
+  amount             Float
+  percentage         Float               @default(0)
+  isPaid             Boolean             @default(false)
+  paidAt             DateTime?
+  appointmentId      String
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  paidAmount         Float               @default(0)
+  appointment        Appointment         @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  paymentAllocations PaymentAllocation[]
 
   @@unique([appointmentId, account])
 }
 
 model PaymentMovement {
-  id        String        @id @default(cuid())
-  account   WorkerAccount
-  amount    Float
-  method    PaymentMethod?
-  notes     String?
-  paidAt    DateTime      @default(now())
-  createdAt DateTime      @default(now())
+  id          String              @id @default(cuid())
+  account     WorkerAccount
+  amount      Float
+  method      PaymentMethod?
+  notes       String?
+  paidAt      DateTime            @default(now())
+  createdAt   DateTime            @default(now())
+  allocations PaymentAllocation[]
+}
+
+model PaymentAllocation {
+  id                String          @id @default(cuid())
+  amount            Float
+  paymentMovementId String
+  financialSplitId  String
+  createdAt         DateTime        @default(now())
+  financialSplit    FinancialSplit  @relation(fields: [financialSplitId], references: [id], onDelete: Cascade)
+  paymentMovement   PaymentMovement @relation(fields: [paymentMovementId], references: [id], onDelete: Cascade)
+}
+
+model AppCounter {
+  key       String   @id
+  value     Int      @default(0)
+  updatedAt DateTime @updatedAt
 }
 
 model Service {

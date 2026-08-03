@@ -9,6 +9,7 @@ import {
 } from "@/lib/booking-schedule"
 import { notifyNewPublicBookingTelegram, quietly } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
+import { nextServiceOrderNumber } from "@/lib/service-order"
 import { getAppSettings } from "@/lib/settings"
 
 class BookingRequestError extends Error {
@@ -265,6 +266,7 @@ export async function POST(request: Request) {
             createdAppointments.push(
               await tx.appointment.create({
                 data: {
+                  orderNumber: await nextServiceOrderNumber(tx, servicePlan.start),
                   title: service.name,
                   date: servicePlan.start,
                   endDate: servicePlan.end,

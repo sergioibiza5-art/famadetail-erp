@@ -163,7 +163,7 @@ export async function payWorkerAccount({
   const paidAt = paidAtValue ? new Date(paidAtValue) : new Date()
   const safePaidAt = Number.isNaN(paidAt.getTime()) ? new Date() : paidAt
 
-  await prisma.paymentMovement.create({
+  const paymentMovement = await prisma.paymentMovement.create({
     data: {
       account,
       amount: remainingPayment,
@@ -190,6 +190,14 @@ export async function payWorkerAccount({
         paidAmount: nextPaidAmount,
         isPaid: isMoneyPaid(nextPaidAmount, split.amount),
         paidAt: isMoneyPaid(nextPaidAmount, split.amount) ? safePaidAt : null,
+      },
+    })
+
+    await prisma.paymentAllocation.create({
+      data: {
+        paymentMovementId: paymentMovement.id,
+        financialSplitId: split.id,
+        amount: roundMoney(amountToApply),
       },
     })
 

@@ -7,6 +7,7 @@ import { AgendaCreateForm } from "@/components/agenda-create-form"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
 import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
+import { nextServiceOrderNumber } from "@/lib/service-order"
 
 export const dynamic = "force-dynamic"
 
@@ -86,31 +87,34 @@ async function createAppointment(formData: FormData) {
   let cursor = new Date(dateValue)
   const groupId = selectedTemplates.length > 1 ? randomUUID() : null
 
-  for (let index = 0; index < selectedTemplates.length; index += 1) {
-    const template = selectedTemplates[index]
-    if (!template) continue
+  await prisma.$transaction(async (tx) => {
+    for (let index = 0; index < selectedTemplates.length; index += 1) {
+      const template = selectedTemplates[index]
+      if (!template) continue
 
-    const startDate = new Date(cursor)
-    const endDate = new Date(startDate.getTime() + template.durationMinutes * 60000)
+      const startDate = new Date(cursor)
+      const endDate = new Date(startDate.getTime() + template.durationMinutes * 60000)
 
-    await prisma.appointment.create({
-      data: {
-        title: template.name,
-        notes: notes || null,
-        date: startDate,
-        endDate,
-        status: "CONFIRMED",
-        customerId,
-        vehicleId,
-        serviceTemplateId: template.id,
-        groupId,
-        serviceIndex: index + 1,
-        serviceTotal: selectedTemplates.length,
-      },
-    })
+      await tx.appointment.create({
+        data: {
+          orderNumber: await nextServiceOrderNumber(tx, startDate),
+          title: template.name,
+          notes: notes || null,
+          date: startDate,
+          endDate,
+          status: "CONFIRMED",
+          customerId,
+          vehicleId,
+          serviceTemplateId: template.id,
+          groupId,
+          serviceIndex: index + 1,
+          serviceTotal: selectedTemplates.length,
+        },
+      })
 
-    cursor = endDate
-  }
+      cursor = endDate
+    }
+  })
 
   revalidatePath("/agenda")
   revalidatePath("/dashboard")
@@ -299,6 +303,9 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                   <div key={appointment.id} className="grid gap-3 p-4 lg:grid-cols-[1fr_auto]">
                     <Link href={`/agenda/${appointment.id}`} className="block">
                       <p className="font-semibold">{appointment.title}</p>
+                      <p className="mt-1 text-xs font-semibold text-red-200">
+                        {appointment.orderNumber || "Sem OS"}
+                      </p>
                       <p className="text-sm text-zinc-400">
                         {appointment.customer.name} · {appointment.vehicle.brand} {appointment.vehicle.model}
                       </p>
@@ -395,6 +402,9 @@ function AppointmentList({
                 </div>
                 <div>
                   <p className="font-semibold text-white">{appointment.title}</p>
+                  <p className="mt-1 text-xs font-semibold text-red-200">
+                    {appointment.orderNumber || "Sem OS"}
+                  </p>
                   <p className="text-sm text-zinc-400">
                     {appointment.customer.name} · {appointment.vehicle.brand} {appointment.vehicle.model}
                   </p>

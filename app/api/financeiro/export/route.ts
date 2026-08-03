@@ -50,6 +50,23 @@ export async function GET(request: NextRequest) {
     }),
     prisma.paymentMovement.findMany({
       where: account ? { account } : undefined,
+      include: {
+        allocations: {
+          include: {
+            financialSplit: {
+              include: {
+                appointment: {
+                  include: {
+                    customer: true,
+                    vehicle: true,
+                    serviceTemplate: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: { paidAt: "desc" },
     }),
   ])
@@ -63,6 +80,7 @@ export async function GET(request: NextRequest) {
       split.appointment.serviceTemplate?.name || split.appointment.title,
       split.appointment.customer.name,
       split.appointment.vehicle.plate,
+      split.appointment.orderNumber || "",
       split.appointment.date.toISOString(),
       formatMoney(split.amount),
       formatMoney(paid),
@@ -70,23 +88,50 @@ export async function GET(request: NextRequest) {
       `${split.percentage.toFixed(2)}%`,
       split.isPaid ? "Pago" : "Por pagar",
       "",
+      "",
     ]
   })
 
-  const movementRows = movements.map((movement) => [
-    "pagamento",
-    accountLabel(movement.account),
-    movement.notes || "Pagamento",
-    "",
-    "",
-    movement.paidAt.toISOString(),
-    "",
-    formatMoney(movement.amount),
-    "",
-    "",
-    "",
-    movement.method || "",
-  ])
+  const movementRows = movements.flatMap((movement) => {
+    if (movement.allocations.length === 0) {
+      return [[
+        "pagamento",
+        accountLabel(movement.account),
+        movement.notes || "Pagamento",
+        "",
+        "",
+        "",
+        movement.paidAt.toISOString(),
+        "",
+        formatMoney(movement.amount),
+        "",
+        "",
+        "",
+        movement.method || "",
+      ]]
+    }
+
+    return movement.allocations.map((allocation) => {
+      const split = allocation.financialSplit
+      const appointment = split.appointment
+
+      return [
+        "pagamento",
+        accountLabel(movement.account),
+        appointment.serviceTemplate?.name || appointment.title,
+        appointment.customer.name,
+        appointment.vehicle.plate,
+        appointment.orderNumber || "",
+        movement.paidAt.toISOString(),
+        "",
+        formatMoney(allocation.amount),
+        "",
+        "",
+        movement.notes || "",
+        movement.method || "",
+      ]
+    })
+  })
 
   const rows = [
     [
@@ -95,12 +140,14 @@ export async function GET(request: NextRequest) {
       "descrição",
       "cliente",
       "matricula",
+      "ordem_servico",
       "data",
       "valor",
       "pago",
       "falta",
       "percentagem",
       "estado",
+      "nota",
       "metodo",
     ],
     ...splitRows,

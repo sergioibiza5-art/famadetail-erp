@@ -286,6 +286,9 @@ export default async function DashboardPage() {
                   <p className="truncate font-semibold text-white">
                     {appointment.serviceTemplate?.name || appointment.title}
                   </p>
+                  <p className="mt-1 text-xs font-semibold text-red-200">
+                    {appointment.orderNumber || "Sem OS"}
+                  </p>
 
                   <p className="mt-1 truncate text-sm text-zinc-400">
                     {appointment.customer.name} · {appointment.vehicle.brand}{" "}
@@ -393,6 +396,9 @@ export default async function DashboardPage() {
                     <p className="truncate font-semibold text-white">
                       {appointment.serviceTemplate?.name || appointment.title}
                     </p>
+                    <p className="mt-1 text-xs font-semibold text-red-200">
+                      {appointment.orderNumber || "Sem OS"}
+                    </p>
 
                     <p className="mt-1 truncate text-sm text-zinc-400">
                       {appointment.customer.name} · {appointment.vehicle.brand}{" "}
@@ -442,6 +448,9 @@ export default async function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-white">
                       {appointment.serviceTemplate?.name || appointment.title}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-red-200">
+                      {appointment.orderNumber || "Sem OS"}
                     </p>
 
                     <p className="mt-1 truncate text-sm text-zinc-400">
