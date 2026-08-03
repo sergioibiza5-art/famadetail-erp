@@ -78,7 +78,7 @@ model ServiceTemplate {
 
 model Appointment {
   id                String              @id @default(cuid())
-  orderNumber       String?             @unique
+  orderNumber       String?
   title             String
   notes             String?
   date              DateTime
@@ -102,6 +102,8 @@ model Appointment {
   financialSplits   FinancialSplit[]
   stockMovements    StockMovement[]
   photos            VehiclePhoto[]
+
+  @@index([orderNumber])
 }
 
 model AppointmentWorker {

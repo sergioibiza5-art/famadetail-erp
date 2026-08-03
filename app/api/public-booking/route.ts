@@ -242,6 +242,7 @@ export async function POST(request: Request) {
 
           const createdAppointments: Appointment[] = []
           let cursor = new Date(startDate)
+          const appointmentOrderNumber = await nextServiceOrderNumber(tx, cursor)
 
           for (let index = 0; index < orderedServices.length; index += 1) {
             const service = orderedServices[index]
@@ -266,7 +267,7 @@ export async function POST(request: Request) {
             createdAppointments.push(
               await tx.appointment.create({
                 data: {
-                  orderNumber: await nextServiceOrderNumber(tx, servicePlan.start),
+                  orderNumber: appointmentOrderNumber,
                   title: service.name,
                   date: servicePlan.start,
                   endDate: servicePlan.end,

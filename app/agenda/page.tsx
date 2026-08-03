@@ -88,6 +88,8 @@ async function createAppointment(formData: FormData) {
   const groupId = selectedTemplates.length > 1 ? randomUUID() : null
 
   await prisma.$transaction(async (tx) => {
+    const appointmentOrderNumber = await nextServiceOrderNumber(tx, cursor)
+
     for (let index = 0; index < selectedTemplates.length; index += 1) {
       const template = selectedTemplates[index]
       if (!template) continue
@@ -97,7 +99,7 @@ async function createAppointment(formData: FormData) {
 
       await tx.appointment.create({
         data: {
-          orderNumber: await nextServiceOrderNumber(tx, startDate),
+          orderNumber: appointmentOrderNumber,
           title: template.name,
           notes: notes || null,
           date: startDate,

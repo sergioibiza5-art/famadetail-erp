@@ -183,11 +183,16 @@ async function normalizeAppointmentGroup(groupId: string) {
 
   if (appointments.length === 0) return null
 
+  const groupOrderNumber =
+    appointments.find((appointment) => appointment.orderNumber)?.orderNumber ||
+    (await nextServiceOrderNumber(prisma, appointments[0].date))
+
   if (appointments.length === 1) {
     await prisma.appointment.update({
       where: { id: appointments[0].id },
       data: {
         groupId: null,
+        orderNumber: groupOrderNumber,
         serviceIndex: null,
         serviceTotal: null,
       },
@@ -201,6 +206,7 @@ async function normalizeAppointmentGroup(groupId: string) {
       prisma.appointment.update({
         where: { id: appointment.id },
         data: {
+          orderNumber: groupOrderNumber,
           serviceIndex: index + 1,
           serviceTotal: appointments.length,
         },
@@ -504,11 +510,18 @@ export default async function AppointmentDetailPage({ params }: Props) {
     if (!baseAppointment || !serviceTemplate) return
 
     let targetGroupId = baseAppointment.groupId
+    let appointmentOrderNumber = baseAppointment.orderNumber
+
     if (!targetGroupId) {
       targetGroupId = randomUUID()
+      appointmentOrderNumber =
+        appointmentOrderNumber || (await nextServiceOrderNumber(prisma, baseAppointment.date))
       await prisma.appointment.update({
         where: { id: baseAppointment.id },
-        data: { groupId: targetGroupId },
+        data: {
+          groupId: targetGroupId,
+          orderNumber: appointmentOrderNumber,
+        },
       })
     }
 
@@ -517,6 +530,10 @@ export default async function AppointmentDetailPage({ params }: Props) {
       include: { financialSplits: true },
       orderBy: { date: "asc" },
     })
+    appointmentOrderNumber =
+      appointmentOrderNumber ||
+      groupedItems.find((item) => item.orderNumber)?.orderNumber ||
+      (await nextServiceOrderNumber(prisma, baseAppointment.date))
     const lastItem = groupedItems[groupedItems.length - 1] || baseAppointment
     const startDate = lastItem.endDate || lastItem.date
     const endDate = new Date(startDate.getTime() + serviceTemplate.durationMinutes * 60000)
@@ -526,7 +543,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
     const created = await prisma.appointment.create({
       data: {
-        orderNumber: await nextServiceOrderNumber(prisma, startDate),
+        orderNumber: appointmentOrderNumber,
         title: serviceTemplate.name,
         notes: baseAppointment.notes,
         date: startDate,
