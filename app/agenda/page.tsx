@@ -2,10 +2,11 @@ import Link from "next/link"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
 import { AppointmentStatus } from "@prisma/client"
-import { CalendarDays, CheckCircle, Clock, XCircle } from "lucide-react"
+import { CalendarDays, CheckCircle, Clock, Euro, XCircle } from "lucide-react"
 import { AgendaCreateForm } from "@/components/agenda-create-form"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
 import { requireAdmin } from "@/lib/auth"
+import { formatMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 import { nextServiceOrderNumber } from "@/lib/service-order"
 
@@ -19,17 +20,20 @@ type AgendaPageProps = {
   }>
 }
 
+type AppointmentItem = Awaited<
+  ReturnType<typeof prisma.appointment.findMany>
+>[number] & {
+  customer: { name: string }
+  vehicle: { brand: string; model: string; plate?: string | null }
+  serviceTemplate: { name: string; price: number; durationMinutes: number } | null
+}
+
+type AppointmentGroup = ReturnType<typeof groupAppointments>[number]
+
 function formatTime(value: Date) {
   return new Intl.DateTimeFormat("pt-PT", {
     hour: "2-digit",
     minute: "2-digit",
-  }).format(value)
-}
-
-function formatDate(value: Date) {
-  return new Intl.DateTimeFormat("pt-PT", {
-    dateStyle: "short",
-    timeStyle: "short",
   }).format(value)
 }
 
@@ -55,6 +59,81 @@ function paymentLabel(isPaid: boolean, method: string | null) {
   if (method === "CASH") return "Pago · Numerário"
   if (method === "MBWAY") return "Pago · MB Way"
   return "Pago"
+}
+
+function groupPaymentLabel(appointments: AppointmentItem[]) {
+  const paidCount = appointments.filter((appointment) => appointment.isPaid).length
+  if (paidCount === 0) return "Por pagar"
+  if (paidCount < appointments.length) return "Parcialmente pago"
+
+  const paymentMethod =
+    appointments.find((appointment) => appointment.paymentMethod)?.paymentMethod || null
+
+  return paymentLabel(true, paymentMethod)
+}
+
+function groupStatus(appointments: AppointmentItem[]) {
+  const priority: AppointmentStatus[] = [
+    "IN_PROGRESS",
+    "CONFIRMED",
+    "PENDING",
+    "COMPLETED",
+    "CANCELLED",
+  ]
+
+  return (
+    priority.find((status) =>
+      appointments.some((appointment) => appointment.status === status)
+    ) || appointments[0].status
+  )
+}
+
+function groupAppointments(appointments: AppointmentItem[]) {
+  const groups = new Map<string, AppointmentItem[]>()
+
+  for (const appointment of appointments) {
+    const key = appointment.groupId || appointment.orderNumber || appointment.id
+    const group = groups.get(key) || []
+    group.push(appointment)
+    groups.set(key, group)
+  }
+
+  return [...groups.values()]
+    .map((items) => {
+      const sortedItems = [...items].sort((a, b) => a.date.getTime() - b.date.getTime())
+      const first = sortedItems[0]
+      const last = sortedItems[sortedItems.length - 1]
+      const endDate = sortedItems.reduce<Date | null>((latest, appointment) => {
+        if (!appointment.endDate) return latest
+        if (!latest || appointment.endDate > latest) return appointment.endDate
+        return latest
+      }, last.endDate)
+      const totalPrice = sortedItems.reduce(
+        (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
+        0
+      )
+
+      return {
+        id: first.id,
+        orderNumber: first.orderNumber,
+        customer: first.customer,
+        vehicle: first.vehicle,
+        date: first.date,
+        endDate,
+        status: groupStatus(sortedItems),
+        paymentLabel: groupPaymentLabel(sortedItems),
+        serviceCount: sortedItems.length,
+        totalPrice,
+        services: sortedItems.map(
+          (appointment) => appointment.serviceTemplate?.name || appointment.title
+        ),
+        title:
+          sortedItems.length === 1
+            ? sortedItems[0].serviceTemplate?.name || sortedItems[0].title
+            : `${sortedItems.length} serviços`,
+      }
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
 async function createAppointment(formData: FormData) {
@@ -133,7 +212,20 @@ async function updateStatus(formData: FormData) {
 
   if (!id || !Object.values(AppointmentStatus).includes(status)) return
 
-  await updateAppointmentStatusWithStock(id, status)
+  const appointment = await prisma.appointment.findUnique({
+    where: { id },
+    select: { groupId: true },
+  })
+  const targetAppointments = appointment?.groupId
+    ? await prisma.appointment.findMany({
+        where: { groupId: appointment.groupId },
+        select: { id: true },
+      })
+    : [{ id }]
+
+  for (const targetAppointment of targetAppointments) {
+    await updateAppointmentStatusWithStock(targetAppointment.id, status)
+  }
 
   revalidatePath("/agenda")
   revalidatePath(`/agenda/${id}`)
@@ -185,6 +277,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
       !q ||
       [
         appointment.title,
+        appointment.orderNumber,
         appointment.customer.name,
         appointment.vehicle.plate,
         appointment.vehicle.brand,
@@ -217,6 +310,12 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
     .filter((appointment) => ["COMPLETED", "CANCELLED"].includes(appointment.status))
     .sort((a, b) => b.date.getTime() - a.date.getTime())
 
+  const customerRequestGroups = groupAppointments(customerRequests)
+  const activeAppointmentGroups = groupAppointments(activeAppointments)
+  const historicAppointmentGroups = groupAppointments(historicAppointments).sort(
+    (a, b) => b.date.getTime() - a.date.getTime()
+  )
+
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
       <div className="mb-5 flex items-start justify-between gap-4">
@@ -228,12 +327,12 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
             Marcações
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Pedidos, trabalhos ativos e histórico separados para não confundir.
+            Agendamentos agrupados por OS. Abre um agendamento para ver os serviços.
           </p>
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          {activeAppointments.length} ativo(s)
+          {activeAppointmentGroups.length} ativo(s)
         </div>
       </div>
 
@@ -251,7 +350,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
               <input
                 name="q"
                 defaultValue={q}
-                placeholder="Cliente, matrícula, serviço..."
+                placeholder="Cliente, matrícula, serviço, OS..."
                 className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
               />
             </label>
@@ -291,32 +390,23 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                 <p className="text-sm text-zinc-400">Pedidos feitos na página pública</p>
               </div>
               <span className="rounded-full border border-red-300/30 px-3 py-1 text-xs font-semibold text-red-200">
-                {customerRequests.length} pendente(s)
+                {customerRequestGroups.length} pendente(s)
               </span>
             </div>
 
             <div className="divide-y divide-red-400/20">
-              {customerRequests.length === 0 ? (
+              {customerRequestGroups.length === 0 ? (
                 <p className="p-8 text-center text-sm text-zinc-500">
                   Nenhum pedido de cliente pendente.
                 </p>
               ) : (
-                customerRequests.map((appointment) => (
-                  <div key={appointment.id} className="grid gap-3 p-4 lg:grid-cols-[1fr_auto]">
-                    <Link href={`/agenda/${appointment.id}`} className="block">
-                      <p className="font-semibold">{appointment.title}</p>
-                      <p className="mt-1 text-xs font-semibold text-red-200">
-                        {appointment.orderNumber || "Sem OS"}
-                      </p>
-                      <p className="text-sm text-zinc-400">
-                        {appointment.customer.name} · {appointment.vehicle.brand} {appointment.vehicle.model}
-                      </p>
-                      <p className="mt-1 text-sm text-zinc-300">{formatDate(appointment.date)}</p>
-                    </Link>
+                customerRequestGroups.map((group) => (
+                  <div key={group.id} className="grid gap-3 p-4 lg:grid-cols-[1fr_auto]">
+                    <AppointmentGroupLink group={group} />
 
                     <div className="flex flex-wrap items-center gap-2">
                       <form action={updateStatus}>
-                        <input type="hidden" name="id" value={appointment.id} />
+                        <input type="hidden" name="id" value={group.id} />
                         <input type="hidden" name="status" value="CONFIRMED" />
                         <button className="inline-flex items-center gap-2 rounded-full bg-zinc-100 px-3 py-2 text-xs font-black text-black">
                           <CheckCircle className="h-4 w-4" />
@@ -324,7 +414,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
                         </button>
                       </form>
                       <form action={updateStatus}>
-                        <input type="hidden" name="id" value={appointment.id} />
+                        <input type="hidden" name="id" value={group.id} />
                         <input type="hidden" name="status" value="CANCELLED" />
                         <button className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold text-zinc-300">
                           <XCircle className="h-4 w-4" />
@@ -340,14 +430,14 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
 
           <AppointmentList
             title="Marcações ativas"
-            subtitle="Confirmadas, pendentes internas ou em curso"
-            appointments={activeAppointments}
+            subtitle="Agendamentos ativos, agrupados por OS"
+            groups={activeAppointmentGroups}
           />
 
           <AppointmentList
             title="Histórico"
-            subtitle="Marcações concluídas ou canceladas"
-            appointments={historicAppointments}
+            subtitle="Agendamentos concluídos ou cancelados"
+            groups={historicAppointmentGroups}
             historic
           />
         </div>
@@ -356,23 +446,32 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
   )
 }
 
-type AppointmentItem = Awaited<
-  ReturnType<typeof prisma.appointment.findMany>
->[number] & {
-  customer: { name: string }
-  vehicle: { brand: string; model: string }
-  serviceTemplate: { price: number; durationMinutes: number } | null
+function AppointmentGroupLink({ group }: { group: AppointmentGroup }) {
+  return (
+    <Link href={`/agenda/${group.id}`} className="block min-w-0">
+      <p className="font-semibold text-white">{group.title}</p>
+      <p className="mt-1 text-xs font-semibold text-red-200">
+        {group.orderNumber || "Sem OS"} · {group.serviceCount} serviço(s)
+      </p>
+      <p className="mt-1 truncate text-sm text-zinc-400">
+        {group.customer.name} · {group.vehicle.brand} {group.vehicle.model}
+      </p>
+      <p className="mt-1 truncate text-xs text-zinc-500">
+        {group.services.join(" · ")}
+      </p>
+    </Link>
+  )
 }
 
 function AppointmentList({
   title,
   subtitle,
-  appointments,
+  groups,
   historic = false,
 }: {
   title: string
   subtitle: string
-  appointments: AppointmentItem[]
+  groups: AppointmentGroup[]
   historic?: boolean
 }) {
   return (
@@ -383,18 +482,18 @@ function AppointmentList({
       </div>
 
       <div className="divide-y divide-white/10">
-        {appointments.length === 0 ? (
+        {groups.length === 0 ? (
           <p className="p-8 text-center text-sm text-zinc-500">
             Nenhuma marcação.
           </p>
         ) : (
-          appointments.map((appointment) => (
+          groups.map((group) => (
             <Link
-              key={appointment.id}
-              href={`/agenda/${appointment.id}`}
-              className="grid gap-3 p-4 transition hover:bg-white/[0.03] lg:grid-cols-[1fr_120px_140px]"
+              key={group.id}
+              href={`/agenda/${group.id}`}
+              className="grid gap-3 p-4 transition hover:bg-white/[0.03] lg:grid-cols-[1fr_140px_140px_140px]"
             >
-              <div className="flex items-start gap-3">
+              <div className="flex min-w-0 items-start gap-3">
                 <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
                   {historic ? (
                     <CheckCircle className="h-5 w-5" />
@@ -402,28 +501,34 @@ function AppointmentList({
                     <CalendarDays className="h-5 w-5" />
                   )}
                 </div>
-                <div>
-                  <p className="font-semibold text-white">{appointment.title}</p>
+                <div className="min-w-0">
+                  <p className="font-semibold text-white">{group.title}</p>
                   <p className="mt-1 text-xs font-semibold text-red-200">
-                    {appointment.orderNumber || "Sem OS"}
+                    {group.orderNumber || "Sem OS"} · {group.serviceCount} serviço(s)
                   </p>
-                  <p className="text-sm text-zinc-400">
-                    {appointment.customer.name} · {appointment.vehicle.brand} {appointment.vehicle.model}
+                  <p className="mt-1 truncate text-sm text-zinc-400">
+                    {group.customer.name} · {group.vehicle.brand} {group.vehicle.model}
                   </p>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    {paymentLabel(appointment.isPaid, appointment.paymentMethod)}
+                  <p className="mt-1 truncate text-xs text-zinc-500">
+                    {group.services.join(" · ")}
                   </p>
+                  <p className="mt-1 text-xs text-zinc-500">{group.paymentLabel}</p>
                 </div>
               </div>
 
               <div className="flex items-center gap-2 text-sm text-zinc-400">
                 <Clock className="h-4 w-4" />
-                {formatTime(appointment.date)}
-                {appointment.endDate ? ` - ${formatTime(appointment.endDate)}` : ""}
+                {formatTime(group.date)}
+                {group.endDate ? ` - ${formatTime(group.endDate)}` : ""}
+              </div>
+
+              <div className="flex items-center gap-2 text-sm text-zinc-400">
+                <Euro className="h-4 w-4" />
+                {formatMoney(group.totalPrice)}
               </div>
 
               <span className="self-start rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-zinc-300">
-                {statusLabel(appointment.status)}
+                {statusLabel(group.status)}
               </span>
             </Link>
           ))
