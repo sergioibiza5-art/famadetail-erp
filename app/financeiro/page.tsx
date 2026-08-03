@@ -3,14 +3,7 @@ import { revalidatePath } from "next/cache"
 import { CalendarDays, Download, Euro, ListChecks, User, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import {
-  creditMoney,
-  getPaidAmount,
-  isMoneyPaid,
-  missingMoney,
-  payWorkerAccount,
-  roundMoney,
-} from "@/lib/finance"
+import { payWorkerAccount, roundMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -62,53 +55,47 @@ async function payAccount(formData: FormData) {
 }
 
 export default async function FinancePage() {
-  const splits = await prisma.financialSplit.findMany({
-    where: {
-      OR: [
-        {
-          amount: {
-            gt: 0,
+  const [splits, paymentMovements] = await Promise.all([
+    prisma.financialSplit.findMany({
+      where: {
+        OR: [
+          {
+            amount: {
+              gt: 0,
+            },
+          },
+          {
+            paidAmount: {
+              gt: 0,
+            },
+          },
+        ],
+      },
+      include: {
+        appointment: {
+          include: {
+            customer: true,
+            vehicle: true,
+            serviceTemplate: true,
           },
         },
-        {
-          paidAmount: {
-            gt: 0,
-          },
-        },
-      ],
-    },
-    include: {
-      appointment: {
-        include: {
-          customer: true,
-          vehicle: true,
-          serviceTemplate: true,
+      },
+      orderBy: {
+        appointment: {
+          date: "desc",
         },
       },
-    },
-    orderBy: {
-      appointment: {
-        date: "desc",
-      },
-    },
-  })
+    }),
+    prisma.paymentMovement.findMany(),
+  ])
 
   const totals = Object.values(WorkerAccount).map((account) => {
     const accountSplits = splits.filter((split) => split.account === account)
+    const accountMovements = paymentMovements.filter((movement) => movement.account === account)
     const total = accountSplits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
-    const paid = accountSplits.reduce(
-      (sum, split) =>
-        roundMoney(sum + getPaidAmount(split)),
-      0
-    )
-    const pending = accountSplits.reduce((sum, split) => {
-      const paidAmount = getPaidAmount(split)
-      return roundMoney(sum + missingMoney(split.amount, paidAmount))
-    }, 0)
-    const credit = accountSplits.reduce((sum, split) => {
-      const paidAmount = getPaidAmount(split)
-      return roundMoney(sum + creditMoney(paidAmount, split.amount))
-    }, 0)
+    const paid = accountMovements.reduce((sum, movement) => roundMoney(sum + movement.amount), 0)
+    const pending = roundMoney(Math.max(0, total - paid))
+    const credit = roundMoney(Math.max(0, paid - total))
 
     return {
       account,
@@ -119,25 +106,14 @@ export default async function FinancePage() {
     }
   })
 
-  const pendingSplits = splits.filter((split) => {
-    const paidAmount = getPaidAmount(split)
-    return !isMoneyPaid(paidAmount, split.amount)
-  })
   const completedServiceIds = new Set(splits.map((split) => split.appointmentId))
-  const totalToReceive = pendingSplits.reduce((sum, split) => {
-    const paidAmount = getPaidAmount(split)
-    return roundMoney(sum + missingMoney(split.amount, paidAmount))
-  }, 0)
-  const totalReceived = splits.reduce(
-    (sum, split) =>
-      roundMoney(sum + getPaidAmount(split)),
+  const totalGenerated = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
+  const totalReceived = paymentMovements.reduce(
+    (sum, movement) => roundMoney(sum + movement.amount),
     0
   )
-  const totalCredit = splits.reduce((sum, split) => {
-    const paidAmount = getPaidAmount(split)
-    return roundMoney(sum + creditMoney(paidAmount, split.amount))
-  }, 0)
-  const totalGenerated = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
+  const totalToReceive = roundMoney(Math.max(0, totalGenerated - totalReceived))
+  const totalCredit = roundMoney(Math.max(0, totalReceived - totalGenerated))
 
   const summaryCards = [
     {

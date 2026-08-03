@@ -119,15 +119,12 @@ export default async function FinanceAccountPage({ params }: Props) {
   ])
 
   const total = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
-  const paid = splits.reduce((sum, split) => roundMoney(sum + getPaidAmount(split)), 0)
-  const pending = splits.reduce((sum, split) => {
-    const paidAmount = getPaidAmount(split)
-    return roundMoney(sum + missingMoney(split.amount, paidAmount))
-  }, 0)
-  const credit = splits.reduce((sum, split) => {
-    const paidAmount = getPaidAmount(split)
-    return roundMoney(sum + creditMoney(paidAmount, split.amount))
-  }, 0)
+  const paid = paymentMovements.reduce(
+    (sum, movement) => roundMoney(sum + movement.amount),
+    0
+  )
+  const pending = roundMoney(Math.max(0, total - paid))
+  const credit = roundMoney(Math.max(0, paid - total))
   const paidServices = splits.filter((split) => isMoneyPaid(getPaidAmount(split), split.amount))
   const pendingServices = splits.filter((split) => !isMoneyPaid(getPaidAmount(split), split.amount))
 
