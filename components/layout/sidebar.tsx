@@ -5,16 +5,17 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import {
-  Car,
+  BarChart3,
   CalendarDays,
+  Car,
   LayoutDashboard,
   Package,
-  WalletCards,
+  Receipt,
+  Search,
   Settings,
   Users,
+  WalletCards,
   Wrench,
-  BarChart3,
-  Receipt,
 } from "lucide-react"
 
 const links = [
@@ -37,6 +38,11 @@ const links = [
     href: "/agenda",
     label: "Agenda",
     icon: CalendarDays,
+  },
+  {
+    href: "/pesquisa",
+    label: "Pesquisa",
+    icon: Search,
   },
   {
     href: "/servicos",
@@ -65,7 +71,7 @@ const links = [
   },
   {
     href: "/settings",
-    label: "Settings",
+    label: "Definições",
     icon: Settings,
   },
 ]
@@ -97,7 +103,6 @@ export function Sidebar() {
       <nav className="flex-1 space-y-2 p-4">
         {links.map((link) => {
           const Icon = link.icon
-
           const active = pathname === link.href
 
           return (
@@ -111,7 +116,6 @@ export function Sidebar() {
               }`}
             >
               <Icon className={`h-5 w-5 ${active ? "text-red-300" : ""}`} />
-
               {link.label}
             </Link>
           )
@@ -124,7 +128,6 @@ export function Sidebar() {
           className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-zinc-400 transition hover:bg-white/5 hover:text-white"
         >
           <Settings className="h-5 w-5" />
-
           Definições
         </Link>
       </div>

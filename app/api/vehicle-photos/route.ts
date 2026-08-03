@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server"
 import { PhotoType } from "@prisma/client"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export async function POST(req: Request) {
   try {
+    await requireAdmin()
+
     const body = await req.json()
 
     const vehicleId = String(body.vehicleId || "")
@@ -44,8 +47,8 @@ export async function POST(req: Request) {
               : "Fotos depois adicionadas",
           description:
             photoType === PhotoType.BEFORE
-              ? "Novas fotografias antes do servico"
-              : "Novas fotografias finais do servico",
+              ? "Novas fotografias antes do serviço"
+              : "Novas fotografias finais do serviço",
           type:
             photoType === PhotoType.BEFORE
               ? "BEFORE_PHOTOS"

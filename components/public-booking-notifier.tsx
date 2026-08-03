@@ -86,7 +86,7 @@ export function PublicBookingNotifier() {
         setShowPopup(true)
 
         if ("Notification" in window && Notification.permission === "granted") {
-          new Notification("Novo pedido de marcacao", {
+          new Notification("Novo pedido de marcação", {
             body: `${nextRequest.customer.name} - ${nextRequest.title}`,
             tag: nextRequest.id,
           })
@@ -139,7 +139,7 @@ export function PublicBookingNotifier() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold text-white">
-                Novo agendamento pela pagina publica
+                Novo agendamento pela página pública
               </p>
               <p className="mt-1 text-xs text-zinc-400">
                 {pendingCount} pedido(s) pendente(s)

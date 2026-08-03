@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
-import { CalendarDays, Euro, User, WalletCards } from "lucide-react"
-import { WorkerAccount } from "@prisma/client"
+import { CalendarDays, Download, Euro, User, WalletCards } from "lucide-react"
+import { PaymentMethod, WorkerAccount } from "@prisma/client"
+import { requireAdmin } from "@/lib/auth"
 import {
   creditMoney,
   getPaidAmount,
@@ -37,13 +38,21 @@ function accountLabel(account: WorkerAccount) {
 async function payAccount(formData: FormData) {
   "use server"
 
+  await requireAdmin()
+
   const account = String(formData.get("account") || "") as WorkerAccount
   const amountValue = String(formData.get("amount") || "")
   const payAll = String(formData.get("payAll") || "") === "on"
+  const methodValue = String(formData.get("method") || "")
+  const notes = String(formData.get("notes") || "").trim()
+  const paidAtValue = String(formData.get("paidAt") || "")
+  const method = Object.values(PaymentMethod).includes(methodValue as PaymentMethod)
+    ? (methodValue as PaymentMethod)
+    : null
 
   if (!Object.values(WorkerAccount).includes(account)) return
 
-  await payWorkerAccount({ account, amountValue, payAll })
+  await payWorkerAccount({ account, amountValue, payAll, method, notes, paidAtValue })
 
   revalidatePath("/financeiro")
   revalidatePath("/dashboard")
@@ -130,7 +139,7 @@ export default async function FinancePage() {
 
   const summaryCards = [
     {
-      label: "Servicos feitos",
+      label: "Serviços feitos",
       value: String(completedServiceIds.size),
       detail: `${splits.length} parcela(s) financeiras`,
       icon: CalendarDays,
@@ -163,15 +172,24 @@ export default async function FinancePage() {
             Financeiro
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Contas dos servicos
+            Contas dos serviços
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
             Controla a divisao entre Sérgio, Adriana e FamaDetail.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          {formatMoney(totalToReceive)} a receber
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/api/financeiro/export"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+          >
+            <Download className="h-4 w-4" />
+            Exportar CSV
+          </Link>
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
+            {formatMoney(totalToReceive)} a receber
+          </div>
         </div>
       </div>
 
@@ -252,6 +270,36 @@ export default async function FinancePage() {
               <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm font-semibold text-white">
                 Pagar tudo em falta
                 <input name="payAll" type="checkbox" className="h-4 w-4 accent-red-300" />
+              </label>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Método
+                  <select
+                    name="method"
+                    defaultValue=""
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                  >
+                    <option value="">Sem método</option>
+                    <option value="CASH">Numerário</option>
+                    <option value="MBWAY">MB Way</option>
+                  </select>
+                </label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Data
+                  <input
+                    name="paidAt"
+                    type="date"
+                    className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                  />
+                </label>
+              </div>
+              <label className="mt-3 block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                Nota
+                <input
+                  name="notes"
+                  placeholder="Ex: acerto semanal"
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+                />
               </label>
               <button className="mt-3 w-full rounded-xl bg-red-500 px-3 py-2 text-xs font-black text-white transition hover:bg-red-400">
                 Guardar pagamento

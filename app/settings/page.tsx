@@ -1,21 +1,25 @@
 import { revalidatePath } from "next/cache"
-import { Clock, Save, Settings } from "lucide-react"
+import Link from "next/link"
+import { Clock, Download, Save, Settings } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
 const days = [
   { key: "monday", label: "Segunda" },
-  { key: "tuesday", label: "Terca" },
+  { key: "tuesday", label: "Terça" },
   { key: "wednesday", label: "Quarta" },
   { key: "thursday", label: "Quinta" },
   { key: "friday", label: "Sexta" },
-  { key: "saturday", label: "Sabado" },
+  { key: "saturday", label: "Sábado" },
   { key: "sunday", label: "Domingo" },
 ] as const
 
 async function updateSettings(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const businessName = String(formData.get("businessName") || "FamaDetail").trim()
   const slotStepMinutes = Number(formData.get("slotStepMinutes") || 30)
@@ -107,16 +111,25 @@ export default async function SettingsPage() {
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
-      <div className="mb-5">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
         <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
           Settings
         </p>
         <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-          Definicoes
+          Definições
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Horarios da agenda publica, recolha ao domicilio e intervalos.
+          Horários da agenda pública, recolha ao domicílio e intervalos.
         </p>
+        </div>
+        <Link
+          href="/api/backup"
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+        >
+          <Download className="h-4 w-4" />
+          Exportar backup
+        </Link>
       </div>
 
       <form
@@ -130,13 +143,13 @@ export default async function SettingsPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold">Geral</h2>
-              <p className="text-sm text-zinc-400">Dados da pagina publica</p>
+              <p className="text-sm text-zinc-400">Dados da página pública</p>
             </div>
           </div>
 
           <div className="space-y-3">
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Nome do negocio
+              Nome do negócio
               <input
                 name="businessName"
                 defaultValue={settings.businessName}
@@ -145,7 +158,7 @@ export default async function SettingsPage() {
             </label>
 
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-              Intervalo dos horarios
+              Intervalo dos horários
               <input
                 name="slotStepMinutes"
                 type="number"
@@ -157,7 +170,7 @@ export default async function SettingsPage() {
             </label>
 
             <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold">
-              Marcacoes publicas
+              Marcações públicas
               <input
                 name="bookingEnabled"
                 type="checkbox"
@@ -186,16 +199,16 @@ export default async function SettingsPage() {
         <div className="space-y-4">
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">Servicos no /marcar</h2>
+              <h2 className="text-lg font-semibold">Serviços no /marcar</h2>
               <p className="text-sm text-zinc-400">
-                Escolhe os servicos que os clientes podem pedir online
+                Escolhe os serviços que os clientes podem pedir online
               </p>
             </div>
 
             <div className="grid gap-2 p-4 sm:grid-cols-2">
               {services.length === 0 ? (
                 <p className="text-sm text-zinc-500">
-                  Ainda nao existem servicos criados.
+                  Ainda não existem serviços criados.
                 </p>
               ) : (
                 services.map((service) => (
@@ -230,7 +243,7 @@ export default async function SettingsPage() {
                   <Clock className="h-5 w-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold">Horarios por dia</h2>
+                  <h2 className="text-lg font-semibold">Horários por dia</h2>
                   <p className="text-sm text-zinc-400">
                     Semana e fim de semana podem ser diferentes
                   </p>

@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache"
 import { ExpenseCategory } from "@prisma/client"
 import { Receipt, WalletCards } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -40,6 +41,8 @@ function categoryLabel(category: ExpenseCategory) {
 
 async function createExpense(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const title = String(formData.get("title") || "").trim()
   const amount = Number(formData.get("amount") || 0)
@@ -92,7 +95,7 @@ export default async function ExpensesPage() {
             Controlo de despesas
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Custos da operacao separados do stock.
+            Custos da operação separados do stock.
           </p>
         </div>
       </div>
@@ -129,7 +132,7 @@ export default async function ExpensesPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold">Nova despesa</h2>
-              <p className="text-sm text-zinc-400">Registar custo da operacao</p>
+              <p className="text-sm text-zinc-400">Registar custo da operação</p>
             </div>
           </div>
 
@@ -207,7 +210,7 @@ export default async function ExpensesPage() {
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4 sm:p-5">
               <h2 className="text-lg font-semibold">Despesas recentes</h2>
-              <p className="text-sm text-zinc-400">Historico de custos registados</p>
+              <p className="text-sm text-zinc-400">Histórico de custos registados</p>
             </div>
             <div className="divide-y divide-white/10">
               {expenses.length === 0 ? (

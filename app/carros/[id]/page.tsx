@@ -2,8 +2,10 @@ import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { notFound, redirect } from "next/navigation"
 import { ArrowLeft, CalendarDays, Car, ImageIcon, Save, Trash2, User } from "lucide-react"
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -21,6 +23,8 @@ function formatDate(value: Date) {
 
 async function updateVehicle(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const vehicleId = String(formData.get("vehicleId") || "")
   const customerId = String(formData.get("customerId") || "")
@@ -58,6 +62,8 @@ async function updateVehicle(formData: FormData) {
 
 async function deleteVehicle(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const vehicleId = String(formData.get("vehicleId") || "")
   if (!vehicleId) return
@@ -134,7 +140,7 @@ export default async function VehicleDetailPage({ params }: Props) {
       <div className="mb-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
-            Historico do carro
+            Histórico do carro
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
             {vehicle.brand} {vehicle.model}
@@ -155,7 +161,7 @@ export default async function VehicleDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Resumo</h2>
-                <p className="text-sm text-zinc-400">Dados do veiculo</p>
+                <p className="text-sm text-zinc-400">Dados do veículo</p>
               </div>
             </div>
 
@@ -196,7 +202,7 @@ export default async function VehicleDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Editar carro</h2>
-                <p className="text-sm text-zinc-400">Atualiza os dados do veiculo</p>
+                <p className="text-sm text-zinc-400">Atualiza os dados do veículo</p>
               </div>
             </div>
 
@@ -292,12 +298,15 @@ export default async function VehicleDetailPage({ params }: Props) {
             <input type="hidden" name="vehicleId" value={vehicle.id} />
             <h2 className="text-lg font-semibold text-red-100">Eliminar carro</h2>
             <p className="mt-2 text-sm text-zinc-400">
-              Remove o carro e o historico associado a ele.
+              Remove o carro e o histórico associado a ele.
             </p>
-            <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-300/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100 transition hover:bg-red-500/20">
+            <ConfirmSubmitButton
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl border border-red-300/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-100 transition hover:bg-red-500/20"
+              message="Tens a certeza que queres eliminar este carro? Tambem serao removidos histórico, marcações e dados financeiros associados."
+            >
               <Trash2 className="h-4 w-4" />
               Eliminar carro
-            </button>
+            </ConfirmSubmitButton>
           </form>
 
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
@@ -367,13 +376,13 @@ export default async function VehicleDetailPage({ params }: Props) {
 
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4">
-              <h2 className="text-lg font-semibold">Marcacoes</h2>
-              <p className="text-sm text-zinc-400">Historico deste carro</p>
+              <h2 className="text-lg font-semibold">Marcações</h2>
+              <p className="text-sm text-zinc-400">Histórico deste carro</p>
             </div>
             <div className="divide-y divide-white/10">
               {vehicle.appointments.length === 0 ? (
                 <p className="p-6 text-center text-sm text-zinc-500">
-                  Nenhuma marcacao registada.
+                  Nenhuma marcação registada.
                 </p>
               ) : (
                 vehicle.appointments.map((appointment) => (
@@ -385,7 +394,7 @@ export default async function VehicleDetailPage({ params }: Props) {
                     <div>
                       <p className="font-semibold">{appointment.title}</p>
                       <p className="text-sm text-zinc-400">
-                        {appointment.serviceTemplate?.name || "Servico"}
+                        {appointment.serviceTemplate?.name || "Serviço"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-zinc-400">

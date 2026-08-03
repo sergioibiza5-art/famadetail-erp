@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from "next/server"
 const PUBLIC_PATHS = [
   "/marcar",
   "/login",
-  "/api/marcar",
   "/api/public-booking",
   "/api/uploadthing",
   "/_next",
@@ -12,7 +11,7 @@ const PUBLIC_PATHS = [
   "/images",
 ]
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   const isPublicPath = PUBLIC_PATHS.some((path) => pathname.startsWith(path))

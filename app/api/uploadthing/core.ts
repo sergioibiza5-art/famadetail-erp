@@ -1,4 +1,5 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next"
+import { requireAdmin } from "@/lib/auth"
 
 const f = createUploadthing()
 
@@ -8,7 +9,12 @@ export const ourFileRouter = {
       maxFileSize: "8MB",
       maxFileCount: 10,
     },
-  }).onUploadComplete(async ({ file }) => {
+  })
+    .middleware(async () => {
+      await requireAdmin()
+      return {}
+    })
+    .onUploadComplete(async ({ file }) => {
     return {
       url: file.url,
       name: file.name,

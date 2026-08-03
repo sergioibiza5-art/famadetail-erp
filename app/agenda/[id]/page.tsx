@@ -17,9 +17,11 @@ import {
   User,
   Users,
 } from "lucide-react"
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
 import { PhotoGallery } from "@/components/photo-gallery"
 import { VehiclePhotoUpload } from "@/components/vehicle-photo-upload"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
+import { requireAdmin } from "@/lib/auth"
 import {
   getPaidAmount,
   isMoneyPaid,
@@ -66,7 +68,7 @@ function statusLabel(status: AppointmentStatus) {
     case "IN_PROGRESS":
       return "Em curso"
     case "COMPLETED":
-      return "Concluida"
+      return "Concluída"
     case "CANCELLED":
       return "Cancelada"
     default:
@@ -75,7 +77,7 @@ function statusLabel(status: AppointmentStatus) {
 }
 
 function methodLabel(method: PaymentMethod | null) {
-  if (method === "CASH") return "Numerario"
+  if (method === "CASH") return "Numerário"
   if (method === "MBWAY") return "MB Way"
   return "Sem metodo"
 }
@@ -263,6 +265,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
   async function updateStatus(formData: FormData) {
     "use server"
 
+    await requireAdmin()
+
     const status = String(formData.get("status") || "") as AppointmentStatus
     if (!Object.values(AppointmentStatus).includes(status)) return
 
@@ -278,6 +282,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   async function updatePayment(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const isPaid = String(formData.get("isPaid") || "") === "on"
     const paymentMethodValue = String(formData.get("paymentMethod") || "")
@@ -301,6 +307,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   async function updateWorkersAndFinance(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const percentages = Object.values(WorkerAccount).map((account) => {
       const value = String(formData.get(`percentage_${account}`) || "0").replace(",", ".")
@@ -406,6 +414,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
   async function sendReadyNotification() {
     "use server"
 
+    await requireAdmin()
+
     const item = await prisma.appointment.findUnique({
       where: { id },
       include: {
@@ -424,6 +434,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   async function updateAppointmentService(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const appointmentId = String(formData.get("appointmentId") || "")
     const serviceTemplateId = String(formData.get("serviceTemplateId") || "")
@@ -474,6 +486,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   async function addAppointmentService(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const serviceTemplateId = String(formData.get("serviceTemplateId") || "")
     if (!serviceTemplateId) return
@@ -542,6 +556,8 @@ export default async function AppointmentDetailPage({ params }: Props) {
 
   async function deleteAppointmentService(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const appointmentId = String(formData.get("appointmentId") || "")
     if (!appointmentId) return
@@ -640,7 +656,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
-            Marcacao
+            Marcação
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
             {appointment.title}
@@ -669,7 +685,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Resumo</h2>
-                <p className="text-sm text-zinc-400">Horario e valor da marcacao</p>
+                <p className="text-sm text-zinc-400">Horário e valor da marcação</p>
               </div>
             </div>
 
@@ -693,7 +709,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   <p className="mt-2 font-semibold">{formatMoney(totalPrice)}</p>
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs uppercase tracking-wider text-zinc-500">Servicos</p>
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">Serviços</p>
                   <p className="mt-2 font-semibold">{groupedAppointments.length}</p>
                 </div>
               </div>
@@ -704,7 +720,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
             action={updateStatus}
             className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
           >
-            <h2 className="mb-4 text-lg font-semibold">Estado do servico</h2>
+            <h2 className="mb-4 text-lg font-semibold">Estado do serviço</h2>
             <div className="space-y-2">
               {Object.values(AppointmentStatus).map((status) => (
                 <button
@@ -757,7 +773,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   defaultChecked={appointment.paymentMethod === "CASH"}
                   className="h-4 w-4 accent-red-300"
                 />
-                Numerario
+                Numerário
               </label>
               <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold">
                 <input
@@ -893,7 +909,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
                 href={`/carros/${appointment.vehicleId}`}
                 className="mt-4 inline-flex rounded-full border border-red-300/30 px-3 py-2 text-xs font-semibold text-red-200"
               >
-                Abrir historico
+                Abrir histórico
               </Link>
             </div>
           </div>
@@ -901,9 +917,9 @@ export default async function AppointmentDetailPage({ params }: Props) {
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="grid gap-3 border-b border-white/10 p-4 sm:p-5 lg:grid-cols-[1fr_auto] lg:items-end">
               <div>
-                <h2 className="text-lg font-semibold">Servicos da marcacao</h2>
+                <h2 className="text-lg font-semibold">Serviços da marcação</h2>
                 <p className="text-sm text-zinc-400">
-                  Edita, acrescenta ou remove servicos individualmente.
+                  Edita, acrescenta ou remove serviços individualmente.
                 </p>
               </div>
               <form action={addAppointmentService} className="flex flex-col gap-2 sm:flex-row">
@@ -912,7 +928,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
                   required
                   className="min-h-11 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
                 >
-                  <option value="">Adicionar servico</option>
+                  <option value="">Adicionar serviço</option>
                   {allServices.map((service) => (
                     <option key={service.id} value={service.id}>
                       {service.name} - {formatMoney(service.price)}
@@ -977,10 +993,13 @@ export default async function AppointmentDetailPage({ params }: Props) {
                     </form>
                     <form action={deleteAppointmentService}>
                       <input type="hidden" name="appointmentId" value={item.id} />
-                      <button className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-red-300/20 bg-red-500/10 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 sm:w-auto">
+                      <ConfirmSubmitButton
+                        className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-2xl border border-red-300/20 bg-red-500/10 px-3 text-xs font-semibold text-red-200 transition hover:bg-red-500/20 sm:w-auto"
+                        message="Tens a certeza que queres remover este serviço da marcação?"
+                      >
                         <Trash2 className="h-4 w-4" />
                         Remover
-                      </button>
+                      </ConfirmSubmitButton>
                     </form>
                   </div>
                 </div>
@@ -1000,7 +1019,7 @@ export default async function AppointmentDetailPage({ params }: Props) {
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4 sm:p-5">
               <h2 className="text-lg font-semibold">Fotos antes/depois</h2>
-              <p className="text-sm text-zinc-400">Registo fotografico desta marcacao</p>
+              <p className="text-sm text-zinc-400">Registo fotográfico desta marcação</p>
             </div>
             <div className="grid gap-4 p-4 sm:p-5 lg:grid-cols-2">
               <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">

@@ -4,16 +4,17 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 
 import {
-  Car,
+  BarChart3,
   CalendarDays,
+  Car,
   LayoutDashboard,
   Package,
-  WalletCards,
+  Receipt,
+  Search,
   Settings,
   Users,
+  WalletCards,
   Wrench,
-  BarChart3,
-  Receipt,
 } from "lucide-react"
 
 const links = [
@@ -38,6 +39,11 @@ const links = [
     label: "Agenda",
   },
   {
+    href: "/pesquisa",
+    icon: Search,
+    label: "Pesquisa",
+  },
+  {
     href: "/servicos",
     icon: Wrench,
     label: "Serviços",
@@ -55,7 +61,7 @@ const links = [
   {
     href: "/financeiro",
     icon: WalletCards,
-    label: "Financas",
+    label: "Finanças",
   },
   {
     href: "/despesas",
@@ -77,7 +83,6 @@ export function MobileNav() {
       <nav className="flex gap-2 overflow-x-auto">
         {links.map((link) => {
           const Icon = link.icon
-
           const active = pathname === link.href
 
           return (
@@ -91,7 +96,6 @@ export function MobileNav() {
               }`}
             >
               <Icon className="h-5 w-5" />
-
               {link.label}
             </Link>
           )

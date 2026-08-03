@@ -36,7 +36,7 @@ function getStatusLabel(status: string) {
     case "IN_PROGRESS":
       return "Em curso"
     case "COMPLETED":
-      return "Concluida"
+      return "Concluída"
     case "CANCELLED":
       return "Cancelada"
     default:
@@ -47,7 +47,7 @@ function getStatusLabel(status: string) {
 function getPaymentMethodLabel(method: string | null) {
   switch (method) {
     case "CASH":
-      return "Numerario"
+      return "Numerário"
     case "MBWAY":
       return "MB Way"
     default:
@@ -71,7 +71,7 @@ export default async function DashboardPage() {
       where: {
         status: "PENDING",
         notes: {
-          contains: "Pedido criado pela pagina publica.",
+          contains: "Pedido criado pela p",
         },
       },
       include: {
@@ -181,7 +181,7 @@ export default async function DashboardPage() {
     {
       label: "Concluidos",
       value: completedMetrics.length,
-      detail: "Servicos terminados",
+      detail: "Serviços terminados",
       icon: CheckCircle,
     },
     {
@@ -207,11 +207,11 @@ export default async function DashboardPage() {
               FamaDetail ERP
             </p>
             <h1 className="mt-3 text-2xl font-bold tracking-tight text-white sm:text-3xl">
-              Operacao do dia
+              Operação do dia
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
               Agenda, pagamentos e trabalhos recentes num painel mais limpo para
-              uso rapido no telemovel.
+              uso rápido no telemovel.
             </p>
           </div>
 
@@ -261,7 +261,7 @@ export default async function DashboardPage() {
               <div>
                 <h2 className="text-lg font-semibold">Pedidos de clientes</h2>
                 <p className="text-sm text-zinc-400">
-                  Pedidos feitos pela pagina publica de marcacao
+                  Pedidos feitos pela página pública de marcação
                 </p>
               </div>
 
@@ -319,10 +319,10 @@ export default async function DashboardPage() {
               </div>
 
               <Link
-                href="/stock"
+                href="/stock/compras"
                 className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200 transition hover:bg-amber-500/20"
               >
-                Abrir stock
+                Lista de compras
               </Link>
             </div>
           </div>
@@ -344,7 +344,7 @@ export default async function DashboardPage() {
                   <div className="min-w-0">
                     <p className="truncate font-semibold text-white">{product.name}</p>
                     <p className="mt-1 text-sm text-zinc-400">
-                      Minimo: {product.minStock} {product.unit || "un"}
+                      Mínimo: {product.minStock} {product.unit || "un"}
                     </p>
                   </div>
 
@@ -376,7 +376,7 @@ export default async function DashboardPage() {
           <div className="divide-y divide-white/10">
             {activeAppointments.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
-                Nenhuma marcacao ativa.
+                Nenhuma marcação ativa.
               </div>
             ) : (
               activeAppointments.map((appointment) => (
@@ -426,7 +426,7 @@ export default async function DashboardPage() {
           <div className="divide-y divide-white/10">
             {completedAppointments.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
-                Nenhuma marcacao concluida.
+                Nenhuma marcação concluída.
               </div>
             ) : (
               completedAppointments.map((appointment) => (

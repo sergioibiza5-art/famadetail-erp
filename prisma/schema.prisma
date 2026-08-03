@@ -129,6 +129,16 @@ model FinancialSplit {
   @@unique([appointmentId, account])
 }
 
+model PaymentMovement {
+  id        String        @id @default(cuid())
+  account   WorkerAccount
+  amount    Float
+  method    PaymentMethod?
+  notes     String?
+  paidAt    DateTime      @default(now())
+  createdAt DateTime      @default(now())
+}
+
 model Service {
   id              String         @id @default(cuid())
   title           String

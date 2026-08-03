@@ -1,12 +1,15 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { Wrench } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
 async function createServiceTemplate(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const name = String(formData.get("name") || "")
   const description = String(formData.get("description") || "")
@@ -39,7 +42,7 @@ function formatDuration(minutes: number) {
   return `${mins}min`
 }
 
-export default async function ServicosPage() {
+export default async function ServiçosPage() {
   const services = await prisma.serviceTemplate.findMany({
     include: {
       productUsages: true,
@@ -51,9 +54,9 @@ export default async function ServicosPage() {
     <section className="px-3 py-4 sm:px-4 lg:p-8">
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Servicos</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Serviços</h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Catalogo de servicos disponiveis na FamaDetail
+            Catálogo de serviços disponiveis na FamaDetail
           </p>
         </div>
         <div className="w-fit rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-300">
@@ -71,16 +74,16 @@ export default async function ServicosPage() {
               <Wrench className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">Novo servico</h2>
+              <h2 className="text-lg font-semibold">Novo serviço</h2>
               <p className="text-sm text-zinc-400">Adicionar ao catalogo</p>
             </div>
           </div>
 
           <div className="space-y-4">
             {[
-              ["name", "Nome do servico", "text"],
-              ["price", "Preco", "number"],
-              ["durationMinutes", "Duracao em minutos", "number"],
+              ["name", "Nome do serviço", "text"],
+              ["price", "Preço", "number"],
+              ["durationMinutes", "Duração em minutos", "number"],
             ].map(([name, label, type]) => (
               <label key={name} className="block">
                 <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -98,7 +101,7 @@ export default async function ServicosPage() {
 
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Descricao
+                Descrição
               </span>
               <textarea
                 name="description"
@@ -108,23 +111,23 @@ export default async function ServicosPage() {
             </label>
 
             <button className="w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-bold text-black transition hover:bg-white">
-              Guardar servico
+              Guardar serviço
             </button>
           </div>
         </form>
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0C]">
           <div className="border-b border-white/10 p-5">
-            <h2 className="text-lg font-semibold">Lista de servicos</h2>
+            <h2 className="text-lg font-semibold">Lista de serviços</h2>
             <p className="text-sm text-zinc-400">
-              Abre qualquer servico para rever ou editar
+              Abre qualquer serviço para rever ou editar
             </p>
           </div>
 
           <div className="divide-y divide-white/10">
             {services.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
-                Nenhum servico criado.
+                Nenhum serviço criado.
               </div>
             ) : (
               services.map((service) => (
@@ -143,7 +146,7 @@ export default async function ServicosPage() {
                     {service.productUsages.length} produto(s)
                   </div>
                   <div className="text-sm text-zinc-400">
-                    {service.description || "Sem descricao"}
+                    {service.description || "Sem descrição"}
                   </div>
                   <Link
                     href={`/servicos/${service.id}`}

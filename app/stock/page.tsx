@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { ProductType } from "@prisma/client"
-import { Minus, Package, Plus } from "lucide-react"
+import { Minus, Package, Plus, ShoppingCart } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import {
   defaultUnitForProductType,
   getProductStockValue,
@@ -20,6 +21,8 @@ function formatMoney(value: number) {
 
 async function createProduct(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const name = String(formData.get("name") || "").trim()
   const typeValue = String(formData.get("type") || "LIQUID") as ProductType
@@ -54,6 +57,8 @@ async function createProduct(formData: FormData) {
 
 async function createMovement(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const productId = String(formData.get("productId") || "")
   const type = String(formData.get("type") || "IN")
@@ -103,21 +108,30 @@ export default async function StockPage() {
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
-      <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-red-300">
             Stock
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Gestao de stock
+            Gestão de stock
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Produtos e movimentos da operacao.
+            Produtos e movimentos da operação.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          {formatMoney(totalStockValue)}
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/stock/compras"
+            className="inline-flex items-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100 transition hover:bg-amber-500/20"
+          >
+            <ShoppingCart className="h-4 w-4" />
+            Lista de compras
+          </Link>
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
+            {formatMoney(totalStockValue)}
+          </div>
         </div>
       </div>
 
@@ -188,7 +202,7 @@ export default async function StockPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Minimo
+                  Mínimo
                   <input
                     name="minStock"
                     type="number"
@@ -201,7 +215,7 @@ export default async function StockPage() {
 
               <div className="grid grid-cols-2 gap-3">
                 <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                  Preco compra
+                  Preço compra
                   <input
                     name="price"
                     type="number"
@@ -301,7 +315,7 @@ export default async function StockPage() {
             <div className="rounded-3xl border border-red-400/20 bg-red-500/5 p-4">
               <h2 className="text-lg font-semibold text-red-100">Stock baixo</h2>
               <p className="mt-1 text-sm text-zinc-400">
-                {lowStock.length} produto(s) abaixo do minimo.
+                {lowStock.length} produto(s) abaixo do mínimo.
               </p>
             </div>
           )}

@@ -52,8 +52,8 @@ export function AgendaCreateForm({
           <Plus className="h-5 w-5" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold">Nova marcacao</h2>
-          <p className="text-sm text-zinc-400">Escolhe um ou varios servicos</p>
+          <h2 className="text-lg font-semibold">Nova marcação</h2>
+          <p className="text-sm text-zinc-400">Escolhe um ou vários serviços</p>
         </div>
       </div>
 
@@ -97,8 +97,8 @@ export function AgendaCreateForm({
 
         <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
           <div className="mb-2 flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold">Servicos</span>
-            <span className="text-xs text-zinc-500">Seleciona varios</span>
+            <span className="text-sm font-semibold">Serviços</span>
+            <span className="text-xs text-zinc-500">Seleciona vários</span>
           </div>
 
           <div className="space-y-2">
@@ -146,7 +146,7 @@ export function AgendaCreateForm({
       </div>
 
       <button className="mt-5 w-full rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
-        Guardar marcacao
+        Guardar marcação
       </button>
     </form>
   )

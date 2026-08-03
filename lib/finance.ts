@@ -1,4 +1,4 @@
-import { WorkerAccount } from "@prisma/client"
+import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { prisma } from "@/lib/prisma"
 
 export function accountLabel(account: WorkerAccount) {
@@ -110,10 +110,16 @@ export async function payWorkerAccount({
   account,
   amountValue,
   payAll,
+  method,
+  notes,
+  paidAtValue,
 }: {
   account: WorkerAccount
   amountValue: string
   payAll: boolean
+  method?: PaymentMethod | null
+  notes?: string
+  paidAtValue?: string
 }) {
   await redistributeAccountCredit(account)
 
@@ -154,6 +160,19 @@ export async function payWorkerAccount({
 
   if (remainingPayment <= 0) return
 
+  const paidAt = paidAtValue ? new Date(paidAtValue) : new Date()
+  const safePaidAt = Number.isNaN(paidAt.getTime()) ? new Date() : paidAt
+
+  await prisma.paymentMovement.create({
+    data: {
+      account,
+      amount: remainingPayment,
+      method,
+      notes: notes?.trim() || (payAll ? "Pagamento total em falta" : "Pagamento manual"),
+      paidAt: safePaidAt,
+    },
+  })
+
   for (const split of splits) {
     if (remainingPayment <= 0) break
 
@@ -170,7 +189,7 @@ export async function payWorkerAccount({
       data: {
         paidAmount: nextPaidAmount,
         isPaid: isMoneyPaid(nextPaidAmount, split.amount),
-        paidAt: isMoneyPaid(nextPaidAmount, split.amount) ? new Date() : null,
+        paidAt: isMoneyPaid(nextPaidAmount, split.amount) ? safePaidAt : null,
       },
     })
 

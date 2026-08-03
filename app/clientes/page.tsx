@@ -1,12 +1,15 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { CalendarDays, Car, Plus, User } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
 async function createCustomer(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const name = String(formData.get("name") || "").trim()
   const phone = String(formData.get("phone") || "").trim()
@@ -51,10 +54,10 @@ export default async function CustomersPage() {
             Clientes
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Gestao de clientes
+            Gestão de clientes
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Abre qualquer cliente para consultar dados, carros e marcacoes.
+            Abre qualquer cliente para consultar dados, carros e marcações.
           </p>
         </div>
 
@@ -161,7 +164,7 @@ export default async function CustomersPage() {
 
                   <div className="flex items-center gap-2 text-sm text-zinc-400">
                     <CalendarDays className="h-4 w-4" />
-                    {customer._count.appointments} marcacao(oes)
+                    {customer._count.appointments} marcação(oes)
                   </div>
                 </Link>
               ))

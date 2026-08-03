@@ -1,7 +1,8 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { ArrowLeft, CalendarDays, Car, Mail, Phone, Save, User } from "lucide-react"
+import { ArrowLeft, CalendarDays, Car, CheckCircle, Euro, Mail, Phone, Save, User } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -15,6 +16,13 @@ function formatDate(value: Date) {
     dateStyle: "short",
     timeStyle: "short",
   }).format(value)
+}
+
+function formatMoney(value: number) {
+  return new Intl.NumberFormat("pt-PT", {
+    style: "currency",
+    currency: "EUR",
+  }).format(value || 0)
 }
 
 export default async function CustomerDetailPage({ params }: Props) {
@@ -38,8 +46,19 @@ export default async function CustomerDetailPage({ params }: Props) {
 
   if (!customer) notFound()
 
+  const completedAppointments = customer.appointments.filter(
+    (appointment) => appointment.status === "COMPLETED"
+  )
+  const totalRevenue = completedAppointments.reduce(
+    (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
+    0
+  )
+  const lastAppointment = customer.appointments[0]
+
   async function updateCustomer(formData: FormData) {
     "use server"
+
+    await requireAdmin()
 
     const name = String(formData.get("name") || "").trim()
     const phone = String(formData.get("phone") || "").trim()
@@ -81,7 +100,7 @@ export default async function CustomerDetailPage({ params }: Props) {
           {customer.name}
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Dados, carros e marcacoes deste cliente.
+          Dados, carros e marcações deste cliente.
         </p>
       </div>
 
@@ -143,12 +162,40 @@ export default async function CustomerDetailPage({ params }: Props) {
 
           <button className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
             <Save className="h-4 w-4" />
-            Guardar alteracoes
+            Guardar alterações
           </button>
         </form>
 
         <div className="space-y-4">
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
+              <div className="mb-3 flex items-center gap-2 text-zinc-400">
+                <Car className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-wider">Carros</span>
+              </div>
+              <p className="font-semibold">{customer.vehicles.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
+              <div className="mb-3 flex items-center gap-2 text-zinc-400">
+                <CalendarDays className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-wider">Marcações</span>
+              </div>
+              <p className="font-semibold">{customer.appointments.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
+              <div className="mb-3 flex items-center gap-2 text-zinc-400">
+                <CheckCircle className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-wider">Concluídas</span>
+              </div>
+              <p className="font-semibold">{completedAppointments.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
+              <div className="mb-3 flex items-center gap-2 text-zinc-400">
+                <Euro className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-wider">Total</span>
+              </div>
+              <p className="font-semibold">{formatMoney(totalRevenue)}</p>
+            </div>
             <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
               <div className="mb-3 flex items-center gap-2 text-zinc-400">
                 <Phone className="h-4 w-4" />
@@ -163,12 +210,21 @@ export default async function CustomerDetailPage({ params }: Props) {
               </div>
               <p className="break-all font-semibold">{customer.email || "Sem email"}</p>
             </div>
+            <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4 sm:col-span-2">
+              <div className="mb-3 flex items-center gap-2 text-zinc-400">
+                <CalendarDays className="h-4 w-4" />
+                <span className="text-xs uppercase tracking-wider">Última marcação</span>
+              </div>
+              <p className="font-semibold">
+                {lastAppointment ? formatDate(lastAppointment.date) : "Sem marcações"}
+              </p>
+            </div>
           </div>
 
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4">
               <h2 className="text-lg font-semibold">Carros</h2>
-              <p className="text-sm text-zinc-400">Veiculos associados</p>
+              <p className="text-sm text-zinc-400">Veículos associados</p>
             </div>
             <div className="divide-y divide-white/10">
               {customer.vehicles.length === 0 ? (
@@ -197,13 +253,13 @@ export default async function CustomerDetailPage({ params }: Props) {
 
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4">
-              <h2 className="text-lg font-semibold">Marcacoes</h2>
-              <p className="text-sm text-zinc-400">Historico recente</p>
+              <h2 className="text-lg font-semibold">Marcações</h2>
+              <p className="text-sm text-zinc-400">Histórico recente</p>
             </div>
             <div className="divide-y divide-white/10">
               {customer.appointments.length === 0 ? (
                 <p className="p-6 text-center text-sm text-zinc-500">
-                  Nenhuma marcacao registada.
+                  Nenhuma marcação registada.
                 </p>
               ) : (
                 customer.appointments.map((appointment) => (

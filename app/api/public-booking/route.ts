@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { NextResponse } from "next/server"
 import { revalidatePath } from "next/cache"
+import { Appointment, Customer, Prisma, Vehicle } from "@prisma/client"
 import {
   getTotalServiceMinutes,
   hasBusyOverlap,
@@ -9,6 +10,22 @@ import {
 import { notifyNewPublicBookingTelegram, quietly } from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { getAppSettings } from "@/lib/settings"
+
+class BookingRequestError extends Error {
+  constructor(
+    message: string,
+    public status: number
+  ) {
+    super(message)
+  }
+}
+
+function isSerializableConflict(error: unknown) {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2034"
+  )
+}
 
 function getRequestedServiceIds(formData: FormData) {
   const ids = [
@@ -26,7 +43,7 @@ export async function POST(request: Request) {
   if (!settings.bookingEnabled) {
     return NextResponse.json(
       {
-        error: "As marcacoes online estao temporariamente indisponiveis.",
+        error: "As marcações online estão temporariamente indisponíveis.",
       },
       {
         status: 400,
@@ -80,7 +97,7 @@ export async function POST(request: Request) {
   if (services.length !== serviceIds.length) {
     return NextResponse.json(
       {
-        error: "Um dos servicos selecionados nao esta disponivel.",
+        error: "Um dos serviços selecionados não está disponível.",
       },
       {
         status: 400,
@@ -110,7 +127,7 @@ export async function POST(request: Request) {
   if (!plan) {
     return NextResponse.json(
       {
-        error: "Horario fora da faixa disponivel.",
+        error: "Horário fora da faixa disponível.",
       },
       {
         status: 400,
@@ -118,42 +135,176 @@ export async function POST(request: Request) {
     )
   }
 
-  const appointments = await prisma.appointment.findMany({
-    where: {
-      status: {
-        notIn: ["COMPLETED", "CANCELLED"],
-      },
-      date: {
-        lt: plan.end,
-      },
-      OR: [
-        {
-          endDate: {
-            gt: plan.start,
-          },
+  const serviceNames = orderedServices.map((service) => service.name).join(", ")
+  const appointmentNotes = [
+    "Pedido criado pela página pública.",
+    `Serviços pedidos: ${serviceNames}.`,
+    plan.spansMultipleDays
+      ? "Aviso mostrado ao cliente: este pedido pode demorar mais de 1 dia de trabalho."
+      : "",
+    needsPickup === "YES"
+      ? `Levantamento e entrega ao domicílio: SIM. Morada: ${pickupAddress}`
+      : "Levantamento e entrega ao domicílio: NAO.",
+    notes ? `Notas do cliente: ${notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n")
+
+  const groupId = orderedServices.length > 1 ? randomUUID() : null
+  let bookingResult:
+    | {
+        customer: Customer
+        vehicle: Vehicle
+        createdAppointments: Appointment[]
+      }
+    | null = null
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      bookingResult = await prisma.$transaction(
+        async (tx) => {
+          const appointments = await tx.appointment.findMany({
+            where: {
+              status: {
+                notIn: ["COMPLETED", "CANCELLED"],
+              },
+              date: {
+                lt: plan.end,
+              },
+              OR: [
+                {
+                  endDate: {
+                    gt: plan.start,
+                  },
+                },
+                {
+                  endDate: null,
+                },
+              ],
+            },
+            select: {
+              date: true,
+              endDate: true,
+            },
+          })
+
+          const busyIntervals = appointments.map((appointment) => ({
+            start: appointment.date,
+            end:
+              appointment.endDate ||
+              new Date(appointment.date.getTime() + settings.slotStepMinutes * 60000),
+          }))
+
+          if (hasBusyOverlap(plan, busyIntervals)) {
+            throw new BookingRequestError(
+              "Este horário acabou de ficar indisponível.",
+              409
+            )
+          }
+
+          let customer =
+            (await tx.customer.findFirst({
+              where: {
+                OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])],
+              },
+            })) ||
+            (await tx.customer.create({
+              data: {
+                name,
+                phone: phone || null,
+                email: email || null,
+              },
+            }))
+
+          if (customer.email !== email || (phone && customer.phone !== phone)) {
+            customer = await tx.customer.update({
+              where: { id: customer.id },
+              data: {
+                email,
+                phone: phone || customer.phone,
+              },
+            })
+          }
+
+          const vehicle = await tx.vehicle.upsert({
+            where: {
+              plate,
+            },
+            update: {},
+            create: {
+              brand,
+              model,
+              plate,
+              customerId: customer.id,
+            },
+          })
+
+          const createdAppointments: Appointment[] = []
+          let cursor = new Date(startDate)
+
+          for (let index = 0; index < orderedServices.length; index += 1) {
+            const service = orderedServices[index]
+            const servicePlan = planBookingWork(
+              settings,
+              cursor,
+              service.durationMinutes,
+              {
+                allowMoveToNextWindow: index > 0,
+              }
+            )
+
+            if (!servicePlan) {
+              throw new BookingRequestError(
+                "Não foi possível calcular a duração do serviço.",
+                400
+              )
+            }
+
+            cursor = servicePlan.end
+
+            createdAppointments.push(
+              await tx.appointment.create({
+                data: {
+                  title: service.name,
+                  date: servicePlan.start,
+                  endDate: servicePlan.end,
+                  status: "PENDING",
+                  notes: appointmentNotes,
+                  customerId: customer.id,
+                  vehicleId: vehicle.id,
+                  serviceTemplateId: service.id,
+                  groupId,
+                  serviceIndex: index + 1,
+                  serviceTotal: orderedServices.length,
+                },
+              })
+            )
+          }
+
+          return { customer, vehicle, createdAppointments }
         },
         {
-          endDate: null,
-        },
-      ],
-    },
-    select: {
-      date: true,
-      endDate: true,
-    },
-  })
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        }
+      )
+      break
+    } catch (error) {
+      if (error instanceof BookingRequestError) {
+        return NextResponse.json({ error: error.message }, { status: error.status })
+      }
 
-  const busyIntervals = appointments.map((appointment) => ({
-    start: appointment.date,
-    end:
-      appointment.endDate ||
-      new Date(appointment.date.getTime() + settings.slotStepMinutes * 60000),
-  }))
+      if (attempt < 2 && isSerializableConflict(error)) {
+        continue
+      }
 
-  if (hasBusyOverlap(plan, busyIntervals)) {
+      throw error
+    }
+  }
+
+  if (!bookingResult) {
     return NextResponse.json(
       {
-        error: "Este horario acabou de ficar indisponivel.",
+        error: "Não foi possível criar a marcação. Tente novamente.",
       },
       {
         status: 409,
@@ -161,103 +312,15 @@ export async function POST(request: Request) {
     )
   }
 
-  let customer =
-    (await prisma.customer.findFirst({
-      where: {
-        OR: [...(phone ? [{ phone }] : []), ...(email ? [{ email }] : [])],
-      },
-    })) ||
-    (await prisma.customer.create({
-      data: {
-        name,
-        phone: phone || null,
-        email: email || null,
-      },
-    }))
-
-  if (customer && (customer.email !== email || (phone && customer.phone !== phone))) {
-    customer = await prisma.customer.update({
-      where: { id: customer.id },
-      data: {
-        email,
-        phone: phone || customer.phone,
-      },
-    })
-  }
-
-  const existingVehicle = await prisma.vehicle.findUnique({
-    where: {
-      plate,
-    },
-  })
-
-  const vehicle =
-    existingVehicle ||
-    (await prisma.vehicle.create({
-      data: {
-        brand,
-        model,
-        plate,
-        customerId: customer.id,
-      },
-    }))
-
-  const serviceNames = orderedServices.map((service) => service.name).join(", ")
-  const appointmentNotes = [
-    "Pedido criado pela pagina publica.",
-    `Servicos pedidos: ${serviceNames}.`,
-    plan.spansMultipleDays
-      ? "Aviso mostrado ao cliente: este pedido pode demorar mais de 1 dia de trabalho."
-      : "",
-    needsPickup === "YES"
-      ? `Levantamento e entrega ao domicilio: SIM. Morada: ${pickupAddress}`
-      : "Levantamento e entrega ao domicilio: NAO.",
-    notes ? `Notas do cliente: ${notes}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n")
-
-  const groupId = orderedServices.length > 1 ? randomUUID() : null
-  let cursor = new Date(startDate)
-
-  const createdAppointments = await prisma.$transaction(
-    orderedServices.map((service, index) => {
-      const servicePlan = planBookingWork(settings, cursor, service.durationMinutes, {
-        allowMoveToNextWindow: index > 0,
-      })
-      if (!servicePlan) {
-        throw new Error("Nao foi possivel calcular a duracao do servico.")
-      }
-
-      cursor = servicePlan.end
-
-      return prisma.appointment.create({
-        data: {
-          title: service.name,
-          date: servicePlan.start,
-          endDate: servicePlan.end,
-          status: "PENDING",
-          notes: appointmentNotes,
-          customerId: customer.id,
-          vehicleId: vehicle.id,
-          serviceTemplateId: service.id,
-          groupId,
-          serviceIndex: index + 1,
-          serviceTotal: orderedServices.length,
-        },
-      })
-    })
-  )
-
   revalidatePath("/agenda")
   revalidatePath("/dashboard")
 
   await quietly(
     notifyNewPublicBookingTelegram({
-      appointments: createdAppointments.map((appointment, index) => ({
+      appointments: bookingResult.createdAppointments.map((appointment, index) => ({
         ...appointment,
-        customer,
-        vehicle,
+        customer: bookingResult.customer,
+        vehicle: bookingResult.vehicle,
         serviceTemplate: orderedServices[index],
       })),
     })
@@ -266,6 +329,6 @@ export async function POST(request: Request) {
   return NextResponse.json({
     success: true,
     message:
-      "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no email indicado.",
+      "Marcação submetida. Depois da equipa confirmar, recebe a confirmação no email indicado.",
   })
 }

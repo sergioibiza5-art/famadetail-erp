@@ -3,6 +3,7 @@ import { notFound } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { ProductType } from "@prisma/client"
 import { ArrowLeft, Package, Save } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import {
   defaultUnitForProductType,
   getProductStockValue,
@@ -49,6 +50,8 @@ export default async function ProductPage({ params }: Props) {
   async function updateProduct(formData: FormData) {
     "use server"
 
+    await requireAdmin()
+
     const name = String(formData.get("name") || "").trim()
     const typeValue = String(formData.get("type") || "LIQUID") as ProductType
     const type = Object.values(ProductType).includes(typeValue)
@@ -64,19 +67,42 @@ export default async function ProductPage({ params }: Props) {
 
     if (!name) return
 
-    await prisma.product.update({
+    const currentProduct = await prisma.product.findUnique({
       where: { id },
-      data: {
-        name,
-        type,
-        initialStock: Number.isFinite(initialStock) ? initialStock : 0,
-        stock: Number.isFinite(stock) ? stock : 0,
-        minStock: Number.isFinite(minStock) ? minStock : 0,
-        price: Number.isFinite(price) ? price : 0,
-        unit: unit || null,
-        notes: notes || null,
-      },
+      select: { stock: true },
     })
+
+    if (!currentProduct) return
+
+    const nextStock = Number.isFinite(stock) ? stock : 0
+    const stockDelta = nextStock - currentProduct.stock
+
+    await prisma.$transaction([
+      prisma.product.update({
+        where: { id },
+        data: {
+          name,
+          type,
+          initialStock: Number.isFinite(initialStock) ? initialStock : 0,
+          stock: nextStock,
+          minStock: Number.isFinite(minStock) ? minStock : 0,
+          price: Number.isFinite(price) ? price : 0,
+          unit: unit || null,
+          notes: notes || null,
+        },
+      }),
+      ...(Math.abs(stockDelta) > 0.001
+        ? [
+            prisma.stockMovement.create({
+              data: {
+                productId: id,
+                quantity: stockDelta,
+                notes: "Ajuste manual do stock atual",
+              },
+            }),
+          ]
+        : []),
+    ])
 
     revalidatePath("/stock")
     revalidatePath(`/stock/${id}`)
@@ -102,7 +128,7 @@ export default async function ProductPage({ params }: Props) {
             {product.name}
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Edita dados, stock minimo, preco e notas do produto.
+            Edita dados, stock mínimo, preço e notas do produto.
           </p>
         </div>
 
@@ -177,7 +203,7 @@ export default async function ProductPage({ params }: Props) {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Minimo
+                Mínimo
                 <input
                   name="minStock"
                   type="number"
@@ -190,7 +216,7 @@ export default async function ProductPage({ params }: Props) {
 
             <div className="grid grid-cols-2 gap-3">
               <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
-                Preco compra
+                Preço compra
                 <input
                   name="price"
                   type="number"
@@ -222,7 +248,7 @@ export default async function ProductPage({ params }: Props) {
 
           <button className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-red-500 px-4 py-3 text-sm font-black text-white transition hover:bg-red-400">
             <Save className="h-4 w-4" />
-            Guardar alteracoes
+            Guardar alterações
           </button>
         </form>
 
@@ -238,7 +264,7 @@ export default async function ProductPage({ params }: Props) {
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
-              <p className="text-sm text-zinc-400">Minimo</p>
+              <p className="text-sm text-zinc-400">Mínimo</p>
               <p className="mt-2 text-2xl font-bold text-white">
                 {product.minStock} {product.unit || "un"}
               </p>

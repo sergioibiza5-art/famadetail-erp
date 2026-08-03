@@ -5,9 +5,18 @@ import { AppointmentStatus } from "@prisma/client"
 import { CalendarDays, CheckCircle, Clock, XCircle } from "lucide-react"
 import { AgendaCreateForm } from "@/components/agenda-create-form"
 import { updateAppointmentStatusWithStock } from "@/lib/appointment-stock"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+
+type AgendaPageProps = {
+  searchParams?: Promise<{
+    q?: string
+    status?: string
+    day?: string
+  }>
+}
 
 function formatTime(value: Date) {
   return new Intl.DateTimeFormat("pt-PT", {
@@ -32,7 +41,7 @@ function statusLabel(status: AppointmentStatus) {
     case "IN_PROGRESS":
       return "Em curso"
     case "COMPLETED":
-      return "Concluida"
+      return "Concluída"
     case "CANCELLED":
       return "Cancelada"
     default:
@@ -42,13 +51,15 @@ function statusLabel(status: AppointmentStatus) {
 
 function paymentLabel(isPaid: boolean, method: string | null) {
   if (!isPaid) return "Por pagar"
-  if (method === "CASH") return "Pago · Numerario"
+  if (method === "CASH") return "Pago · Numerário"
   if (method === "MBWAY") return "Pago · MB Way"
   return "Pago"
 }
 
 async function createAppointment(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const customerId = String(formData.get("customerId") || "")
   const vehicleId = String(formData.get("vehicleId") || "")
@@ -109,6 +120,8 @@ async function createAppointment(formData: FormData) {
 async function updateStatus(formData: FormData) {
   "use server"
 
+  await requireAdmin()
+
   const id = String(formData.get("id") || "")
   const status = String(formData.get("status") || "") as AppointmentStatus
 
@@ -124,7 +137,12 @@ async function updateStatus(formData: FormData) {
   revalidatePath("/analytics")
 }
 
-export default async function AgendaPage() {
+export default async function AgendaPage({ searchParams }: AgendaPageProps) {
+  const filters = await searchParams
+  const q = String(filters?.q || "").trim().toLowerCase()
+  const statusFilter = String(filters?.status || "")
+  const dayFilter = String(filters?.day || "")
+
   const [customers, vehicles, services, appointments] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
     prisma.vehicle.findMany({
@@ -156,19 +174,40 @@ export default async function AgendaPage() {
     }),
   ])
 
-  const customerRequests = appointments.filter(
+  const filteredAppointments = appointments.filter((appointment) => {
+    const matchesSearch =
+      !q ||
+      [
+        appointment.title,
+        appointment.customer.name,
+        appointment.vehicle.plate,
+        appointment.vehicle.brand,
+        appointment.vehicle.model,
+        appointment.serviceTemplate?.name,
+        appointment.notes,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(q))
+    const matchesStatus = !statusFilter || appointment.status === statusFilter
+    const matchesDay =
+      !dayFilter || appointment.date.toISOString().slice(0, 10) === dayFilter
+
+    return matchesSearch && matchesStatus && matchesDay
+  })
+
+  const customerRequests = filteredAppointments.filter(
     (appointment) =>
       appointment.status === "PENDING" &&
-      appointment.notes?.includes("Pedido criado pela pagina publica.")
+      appointment.notes?.includes("Pedido criado pela p")
   )
 
-  const activeAppointments = appointments.filter(
+  const activeAppointments = filteredAppointments.filter(
     (appointment) =>
       !["COMPLETED", "CANCELLED"].includes(appointment.status) &&
       !customerRequests.some((request) => request.id === appointment.id)
   )
 
-  const historicAppointments = appointments
+  const historicAppointments = filteredAppointments
     .filter((appointment) => ["COMPLETED", "CANCELLED"].includes(appointment.status))
     .sort((a, b) => b.date.getTime() - a.date.getTime())
 
@@ -180,10 +219,10 @@ export default async function AgendaPage() {
             Agenda
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Marcacoes
+            Marcações
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Pedidos, trabalhos ativos e historico separados para nao confundir.
+            Pedidos, trabalhos ativos e histórico separados para não confundir.
           </p>
         </div>
 
@@ -200,11 +239,50 @@ export default async function AgendaPage() {
           createAppointment={createAppointment}
         />
         <div className="space-y-4">
+          <form className="grid gap-3 rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:grid-cols-[1fr_160px_160px_auto] sm:items-end">
+            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Procurar
+              <input
+                name="q"
+                defaultValue={q}
+                placeholder="Cliente, matrícula, serviço..."
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+              />
+            </label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Estado
+              <select
+                name="status"
+                defaultValue={statusFilter}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+              >
+                <option value="">Todos</option>
+                {Object.values(AppointmentStatus).map((status) => (
+                  <option key={status} value={status}>
+                    {statusLabel(status)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+              Dia
+              <input
+                name="day"
+                type="date"
+                defaultValue={dayFilter}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+              />
+            </label>
+            <button className="min-h-12 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
+              Filtrar
+            </button>
+          </form>
+
           <div className="overflow-hidden rounded-3xl border border-red-400/20 bg-red-500/5">
             <div className="flex items-center justify-between gap-3 border-b border-red-400/20 p-4 sm:p-5">
               <div>
                 <h2 className="text-lg font-semibold">Pedidos de clientes</h2>
-                <p className="text-sm text-zinc-400">Pedidos feitos na pagina publica</p>
+                <p className="text-sm text-zinc-400">Pedidos feitos na página pública</p>
               </div>
               <span className="rounded-full border border-red-300/30 px-3 py-1 text-xs font-semibold text-red-200">
                 {customerRequests.length} pendente(s)
@@ -252,14 +330,14 @@ export default async function AgendaPage() {
           </div>
 
           <AppointmentList
-            title="Marcacoes ativas"
+            title="Marcações ativas"
             subtitle="Confirmadas, pendentes internas ou em curso"
             appointments={activeAppointments}
           />
 
           <AppointmentList
-            title="Historico"
-            subtitle="Marcacoes concluidas ou canceladas"
+            title="Histórico"
+            subtitle="Marcações concluídas ou canceladas"
             appointments={historicAppointments}
             historic
           />
@@ -298,7 +376,7 @@ function AppointmentList({
       <div className="divide-y divide-white/10">
         {appointments.length === 0 ? (
           <p className="p-8 text-center text-sm text-zinc-500">
-            Nenhuma marcacao.
+            Nenhuma marcação.
           </p>
         ) : (
           appointments.map((appointment) => (

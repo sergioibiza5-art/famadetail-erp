@@ -2,10 +2,11 @@
 
 import { cookies } from "next/headers"
 import { redirect } from "next/navigation"
+import { safeInternalRedirect } from "@/lib/auth"
 
 export async function loginAction(formData: FormData) {
   const password = String(formData.get("password") || "")
-  const redirectTo = String(formData.get("redirect") || "/")
+  const redirectTo = safeInternalRedirect(String(formData.get("redirect") || "/"))
 
   if (!process.env.ADMIN_ACCESS_TOKEN) {
     redirect("/login?error=config")

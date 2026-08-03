@@ -116,7 +116,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       const data = await response.json()
 
       if (!response.ok) {
-        setMessage(data.error || "Nao foi possivel criar a marcacao.")
+        setMessage(data.error || "Não foi possível criar a marcação.")
         return
       }
 
@@ -126,7 +126,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
       setSelectedServiceIds([])
       setMessage(
         data.message ||
-          "Marcacao submetida. Depois da equipa confirmar, recebe a confirmacao no email indicado."
+          "Marcação submetida. Depois da equipa confirmar, recebe a confirmação no email indicado."
       )
       setSubmitted(true)
     } finally {
@@ -145,9 +145,9 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
             <CalendarDays className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold">Pedido de marcacao</h2>
+            <h2 className="text-lg font-semibold">Pedido de marcação</h2>
             <p className="text-sm text-zinc-400">
-              Escolha um ou varios servicos e um horario disponivel
+              Escolha um ou vários serviços e um horário disponível
             </p>
           </div>
         </div>
@@ -159,9 +159,9 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
             <div className="flex items-start gap-3">
               <CheckCircle className="mt-0.5 h-5 w-5 shrink-0 text-emerald-300" />
               <div>
-                <p className="font-semibold">Marcacao submetida com sucesso.</p>
+                <p className="font-semibold">Marcação submetida com sucesso.</p>
                 <p className="mt-1 text-emerald-100/80">
-                  O pedido ficou pendente na agenda da FamaDetail. A confirmacao
+                  O pedido ficou pendente na agenda da FamaDetail. A confirmação
                   segue para o email indicado depois de ser revista.
                 </p>
               </div>
@@ -172,7 +172,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
         <div>
           <div className="mb-2 flex items-center justify-between gap-3">
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Servicos
+              Serviços
             </label>
             <span className="text-xs text-zinc-500">
               {selectedServiceIds.length} selecionado(s)
@@ -222,7 +222,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
         <div>
           <div className="mb-2 flex items-center justify-between">
             <label className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Horario de entrada
+              Horário de entrada
             </label>
             {loadingSlots && (
               <span className="flex items-center gap-2 text-xs text-zinc-500">
@@ -252,14 +252,14 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
 
           {!loadingSlots && selectedServiceIds.length === 0 && (
             <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
-              Selecione pelo menos um servico para ver horarios.
+              Selecione pelo menos um serviço para ver horários.
             </p>
           )}
 
           {!loadingSlots && selectedServiceIds.length > 0 && slots.length === 0 && (
             <p className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-zinc-400">
-              Sem horarios livres para este dia. Escolha outro dia ou ajuste os
-              servicos.
+              Sem horários livres para este dia. Escolha outro dia ou ajuste os
+              serviços.
             </p>
           )}
         </div>
@@ -275,7 +275,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <p>
                   Este pedido pode demorar mais de 1 dia para ficar pronto,
-                  porque continua no proximo horario disponivel.
+                  porque continua no próximo horário disponível.
                 </p>
               </div>
             )}
@@ -314,14 +314,14 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
           <input
             name="email"
             type="email"
-            placeholder="Email para confirmacao"
+            placeholder="Email para confirmação"
             required
             className="w-full rounded-2xl border border-white/10 bg-[#121214] px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-red-400"
           />
         </label>
 
         <div className="rounded-2xl border border-red-300/20 bg-red-500/10 p-4 text-sm text-red-50">
-          A confirmacao da marcacao e o aviso quando o veiculo estiver pronto
+          A confirmação da marcação e o aviso quando o veículo estiver pronto
           seguem para este email.
         </div>
 
@@ -366,7 +366,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
         {pickupEnabled && (
           <div className="rounded-2xl border border-white/10 bg-[#121214] p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Levantamento e entrega ao domicilio
+              Levantamento e entrega ao domicílio
             </p>
 
             <div className="mt-3 grid grid-cols-2 gap-3">
@@ -379,7 +379,7 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
                   onChange={(event) => setNeedsPickup(event.target.value)}
                   className="accent-red-400"
                 />
-                Nao
+                Não
               </label>
 
               <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-white transition hover:border-white/20">
@@ -433,12 +433,12 @@ export function PublicBookingForm({ services, pickupEnabled }: Props) {
           ) : (
             <CheckCircle className="h-4 w-4" />
           )}
-          Pedir marcacao
+          Pedir marcação
         </button>
 
         {!slot && !loadingSlots && slots.length > 0 && (
           <p className="text-center text-xs text-zinc-500">
-            Escolha um horario para ativar o pedido.
+            Escolha um horário para ativar o pedido.
           </p>
         )}
 

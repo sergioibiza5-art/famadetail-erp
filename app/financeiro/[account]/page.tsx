@@ -1,8 +1,9 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { WorkerAccount } from "@prisma/client"
-import { ArrowLeft, CalendarDays, Euro, User, WalletCards } from "lucide-react"
+import { PaymentMethod, WorkerAccount } from "@prisma/client"
+import { ArrowLeft, CalendarDays, Download, Euro, User, WalletCards } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
   creditMoney,
@@ -32,13 +33,21 @@ function formatDate(value: Date) {
 async function payAccount(formData: FormData) {
   "use server"
 
+  await requireAdmin()
+
   const account = String(formData.get("account") || "") as WorkerAccount
   const amountValue = String(formData.get("amount") || "")
   const payAll = String(formData.get("payAll") || "") === "on"
+  const methodValue = String(formData.get("method") || "")
+  const notes = String(formData.get("notes") || "").trim()
+  const paidAtValue = String(formData.get("paidAt") || "")
+  const method = Object.values(PaymentMethod).includes(methodValue as PaymentMethod)
+    ? (methodValue as PaymentMethod)
+    : null
 
   if (!Object.values(WorkerAccount).includes(account)) return
 
-  await payWorkerAccount({ account, amountValue, payAll })
+  await payWorkerAccount({ account, amountValue, payAll, method, notes, paidAtValue })
 
   revalidatePath("/financeiro")
   revalidatePath(`/financeiro/${account}`)
@@ -52,37 +61,44 @@ export default async function FinanceAccountPage({ params }: Props) {
 
   if (!Object.values(WorkerAccount).includes(account)) notFound()
 
-  const splits = await prisma.financialSplit.findMany({
-    where: {
-      account,
-      OR: [
-        {
-          amount: {
-            gt: 0,
+  const [splits, paymentMovements] = await Promise.all([
+    prisma.financialSplit.findMany({
+      where: {
+        account,
+        OR: [
+          {
+            amount: {
+              gt: 0,
+            },
+          },
+          {
+            paidAmount: {
+              gt: 0,
+            },
+          },
+        ],
+      },
+      include: {
+        appointment: {
+          include: {
+            customer: true,
+            vehicle: true,
+            serviceTemplate: true,
           },
         },
-        {
-          paidAmount: {
-            gt: 0,
-          },
-        },
-      ],
-    },
-    include: {
-      appointment: {
-        include: {
-          customer: true,
-          vehicle: true,
-          serviceTemplate: true,
+      },
+      orderBy: {
+        appointment: {
+          date: "desc",
         },
       },
-    },
-    orderBy: {
-      appointment: {
-        date: "desc",
-      },
-    },
-  })
+    }),
+    prisma.paymentMovement.findMany({
+      where: { account },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+  ])
 
   const total = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
   const paid = splits.reduce((sum, split) => roundMoney(sum + getPaidAmount(split)), 0)
@@ -176,7 +192,7 @@ export default async function FinanceAccountPage({ params }: Props) {
 
       <form
         action={payAccount}
-        className="mb-4 grid gap-3 rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:grid-cols-[1fr_auto_auto] sm:items-end"
+        className="mb-4 grid gap-3 rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 lg:grid-cols-[1fr_150px_150px_170px_auto] lg:items-end"
       >
         <input type="hidden" name="account" value={account} />
         <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
@@ -194,10 +210,78 @@ export default async function FinanceAccountPage({ params }: Props) {
           Pagar tudo em falta
           <input name="payAll" type="checkbox" className="h-4 w-4 accent-red-300" />
         </label>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Método
+          <select
+            name="method"
+            defaultValue=""
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+          >
+            <option value="">Sem método</option>
+            <option value="CASH">Numerário</option>
+            <option value="MBWAY">MB Way</option>
+          </select>
+        </label>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+          Data
+          <input
+            name="paidAt"
+            type="date"
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-red-300/60"
+          />
+        </label>
+        <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500 lg:col-span-3">
+          Nota
+          <input
+            name="notes"
+            placeholder="Ex: transferência semanal"
+            className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+          />
+        </label>
         <button className="min-h-12 rounded-2xl bg-red-500 px-5 py-3 text-sm font-black text-white transition hover:bg-red-400">
           Guardar pagamento
         </button>
       </form>
+
+      <div className="mb-4 flex justify-end">
+        <Link
+          href={`/api/financeiro/export?account=${account}`}
+          className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+        >
+          <Download className="h-4 w-4" />
+          Exportar CSV desta conta
+        </Link>
+      </div>
+
+      {paymentMovements.length > 0 && (
+        <div className="mb-4 overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
+          <div className="border-b border-white/10 p-4 sm:p-5">
+            <h2 className="text-lg font-semibold">Pagamentos registados</h2>
+            <p className="text-sm text-zinc-400">
+              Histórico dos últimos pagamentos desta conta.
+            </p>
+          </div>
+          <div className="divide-y divide-white/10">
+            {paymentMovements.map((movement) => (
+              <div
+                key={movement.id}
+                className="grid gap-2 p-4 sm:grid-cols-[1fr_auto_auto] sm:items-center"
+              >
+                <p className="font-semibold text-white">
+                  {movement.notes || "Pagamento"}
+                </p>
+                <p className="font-semibold text-emerald-300">
+                  {formatMoney(movement.amount)}
+                </p>
+                <p className="text-sm text-zinc-500">
+                  {movement.method ? `${movement.method === "CASH" ? "Numerário" : "MB Way"} · ` : ""}
+                  {formatDate(movement.paidAt)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
         <div className="border-b border-white/10 p-4 sm:p-5">

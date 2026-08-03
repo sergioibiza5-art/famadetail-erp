@@ -41,17 +41,17 @@ export default async function PublicBookingPage() {
           </h1>
 
           <p className="mt-3 max-w-xl text-sm leading-6 text-zinc-300 sm:text-base sm:leading-7">
-            Escolha o servico, selecione um horario livre e envie o pedido.
+            Escolha o serviço, selecione um horário livre e envie o pedido.
           </p>
         </section>
 
         {!settings.bookingEnabled ? (
           <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-8 text-center text-sm text-zinc-400">
-            As marcacoes online estao temporariamente indisponiveis.
+            As marcações online estão temporariamente indisponíveis.
           </div>
         ) : services.length === 0 ? (
           <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-8 text-center text-sm text-zinc-400">
-            Ainda nao existem servicos disponiveis para marcacao.
+            Ainda não existem serviços disponiveis para marcação.
           </div>
         ) : (
           <PublicBookingForm

@@ -27,7 +27,10 @@ export async function updateAppointmentStatusWithStock(
     shouldSendConfirmation =
       status === "CONFIRMED" && existing?.status !== "CONFIRMED"
 
-    if (status !== "COMPLETED") return
+    if (status !== "COMPLETED") {
+      await revertAppointmentStockConsumption(tx, appointmentId)
+      return
+    }
 
     await applyAppointmentStockConsumption(tx, appointmentId)
   })
@@ -46,6 +49,65 @@ export async function updateAppointmentStatusWithStock(
       await quietly(sendAppointmentConfirmationEmail(appointment))
     }
   }
+}
+
+async function revertAppointmentStockConsumption(
+  tx: PrismaTx,
+  appointmentId: string
+) {
+  const appointment = await tx.appointment.findUnique({
+    where: { id: appointmentId },
+    include: {
+      stockMovements: true,
+    },
+  })
+
+  if (!appointment?.stockDeductedAt) return
+
+  const netConsumedByProduct = new Map<
+    string,
+    { quantity: number; serviceTemplateId: string | null }
+  >()
+
+  for (const movement of appointment.stockMovements) {
+    const current = netConsumedByProduct.get(movement.productId) || {
+      quantity: 0,
+      serviceTemplateId: movement.serviceTemplateId,
+    }
+    current.quantity += movement.quantity
+    current.serviceTemplateId = current.serviceTemplateId || movement.serviceTemplateId
+    netConsumedByProduct.set(movement.productId, current)
+  }
+
+  for (const [productId, movement] of netConsumedByProduct) {
+    if (movement.quantity >= 0) continue
+
+    const quantityToRestore = Math.abs(movement.quantity)
+
+    await tx.stockMovement.create({
+      data: {
+        productId,
+        appointmentId,
+        serviceTemplateId: movement.serviceTemplateId,
+        quantity: quantityToRestore,
+        notes: `Reposicao automatica: ${appointment.title}`,
+      },
+    })
+
+    await tx.product.update({
+      where: { id: productId },
+      data: {
+        stock: {
+          increment: quantityToRestore,
+        },
+      },
+    })
+  }
+
+  await tx.appointment.update({
+    where: { id: appointmentId },
+    data: { stockDeductedAt: null },
+  })
 }
 
 async function applyAppointmentStockConsumption(

@@ -2,6 +2,8 @@ import Link from "next/link"
 import { notFound } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { ArrowLeft, Clock, Euro, Package, Plus, Save, Trash2, Wrench } from "lucide-react"
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
+import { requireAdmin } from "@/lib/auth"
 import { getProductUnitCost } from "@/lib/product-stock"
 import { prisma } from "@/lib/prisma"
 
@@ -9,6 +11,8 @@ export const dynamic = "force-dynamic"
 
 async function updateServiceTemplate(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const serviceId = String(formData.get("serviceId") || "")
   const name = String(formData.get("name") || "")
@@ -49,6 +53,8 @@ function formatDuration(minutes: number) {
 async function addProductUsage(formData: FormData) {
   "use server"
 
+  await requireAdmin()
+
   const serviceId = String(formData.get("serviceId") || "")
   const productId = String(formData.get("productId") || "")
   const quantity = Number(formData.get("quantity") || 0)
@@ -76,6 +82,8 @@ async function addProductUsage(formData: FormData) {
 async function updateProductUsage(formData: FormData) {
   "use server"
 
+  await requireAdmin()
+
   const serviceId = String(formData.get("serviceId") || "")
   const usageId = String(formData.get("usageId") || "")
   const quantity = Number(formData.get("quantity") || 0)
@@ -92,6 +100,8 @@ async function updateProductUsage(formData: FormData) {
 
 async function deleteProductUsage(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const serviceId = String(formData.get("serviceId") || "")
   const usageId = String(formData.get("usageId") || "")
@@ -151,19 +161,19 @@ export default async function ServiceTemplatePage({
         className="mb-4 inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-red-300"
       >
         <ArrowLeft className="h-4 w-4" />
-        Voltar aos servicos
+        Voltar aos serviços
       </Link>
 
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-red-300">
-            Servico
+            Serviço
           </p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
             {service.name}
           </h1>
           <p className="mt-1 text-sm text-zinc-400">
-            Abrir, rever e editar o servico do catalogo.
+            Abrir, rever e editar o serviço do catalogo.
           </p>
         </div>
       </div>
@@ -179,9 +189,9 @@ export default async function ServiceTemplatePage({
               <Wrench className="h-5 w-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold">Editar servico</h2>
+              <h2 className="text-lg font-semibold">Editar serviço</h2>
               <p className="text-sm text-zinc-400">
-                Atualiza os dados usados nas marcacoes
+                Atualiza os dados usados nas marcações
               </p>
             </div>
           </div>
@@ -189,7 +199,7 @@ export default async function ServiceTemplatePage({
           <div className="space-y-4">
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Nome do servico
+                Nome do serviço
               </span>
               <input
                 name="name"
@@ -200,7 +210,7 @@ export default async function ServiceTemplatePage({
             </label>
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Preco
+                Preço
               </span>
               <input
                 name="price"
@@ -213,7 +223,7 @@ export default async function ServiceTemplatePage({
             </label>
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Duracao em minutos
+                Duração em minutos
               </span>
               <input
                 name="durationMinutes"
@@ -225,7 +235,7 @@ export default async function ServiceTemplatePage({
             </label>
             <label className="block">
               <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Descricao
+                Descrição
               </span>
               <textarea
                 name="description"
@@ -236,7 +246,7 @@ export default async function ServiceTemplatePage({
             </label>
             <button className="flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-bold text-black transition hover:bg-white">
               <Save className="h-4 w-4" />
-              Guardar alteracoes
+              Guardar alterações
             </button>
           </div>
         </form>
@@ -246,7 +256,7 @@ export default async function ServiceTemplatePage({
             <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
               <div className="mb-2 flex items-center gap-2 text-red-300">
                 <Euro className="h-4 w-4" />
-                <p className="text-xs uppercase text-zinc-500">Preco</p>
+                <p className="text-xs uppercase text-zinc-500">Preço</p>
               </div>
               <p className="text-2xl font-bold text-white">
                 {formatMoney(service.price)}
@@ -255,7 +265,7 @@ export default async function ServiceTemplatePage({
             <div className="rounded-2xl border border-white/10 bg-[#0B0B0C] p-4">
               <div className="mb-2 flex items-center gap-2 text-red-300">
                 <Clock className="h-4 w-4" />
-                <p className="text-xs uppercase text-zinc-500">Duracao</p>
+                <p className="text-xs uppercase text-zinc-500">Duração</p>
               </div>
               <p className="text-2xl font-bold text-white">
                 {formatDuration(service.durationMinutes)}
@@ -281,7 +291,7 @@ export default async function ServiceTemplatePage({
                 <div>
                   <h2 className="text-lg font-semibold">Produtos gastos</h2>
                   <p className="text-sm text-zinc-400">
-                    Desconta automaticamente quando a marcacao fica concluida
+                    Desconta automaticamente quando a marcação fica concluída
                   </p>
                 </div>
               </div>
@@ -336,7 +346,7 @@ export default async function ServiceTemplatePage({
             <div className="divide-y divide-white/10">
               {service.productUsages.length === 0 ? (
                 <div className="p-8 text-center text-sm text-zinc-400">
-                  Ainda nao ha produtos definidos para este servico.
+                  Ainda não ha produtos definidos para este serviço.
                 </div>
               ) : (
                 service.productUsages.map((usage) => (
@@ -369,14 +379,18 @@ export default async function ServiceTemplatePage({
                       </button>
                     </form>
                     <p className="text-sm font-semibold text-zinc-300">
-                      {usage.quantity} {usage.product.unit || "un"} / servico
+                      {usage.quantity} {usage.product.unit || "un"} / serviço
                     </p>
                     <form action={deleteProductUsage}>
                       <input type="hidden" name="serviceId" value={service.id} />
                       <input type="hidden" name="usageId" value={usage.id} />
-                      <button className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-red-300/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20">
+                      <ConfirmSubmitButton
+                        className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-red-300/20 bg-red-500/10 text-red-200 transition hover:bg-red-500/20"
+                        message="Remover este produto gasto deste serviço?"
+                        title="Remover produto"
+                      >
                         <Trash2 className="h-4 w-4" />
-                      </button>
+                      </ConfirmSubmitButton>
                     </form>
                   </div>
                 ))
@@ -386,15 +400,15 @@ export default async function ServiceTemplatePage({
 
           <div className="rounded-2xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4 sm:p-5">
-              <h2 className="text-lg font-semibold">Ultimas marcacoes</h2>
+              <h2 className="text-lg font-semibold">Ultimas marcações</h2>
               <p className="text-sm text-zinc-400">
-                Historico recente deste servico
+                Histórico recente deste serviço
               </p>
             </div>
             <div className="divide-y divide-white/10">
               {service.appointments.length === 0 ? (
                 <div className="p-8 text-center text-sm text-zinc-400">
-                  Ainda nao existem marcacoes com este servico.
+                  Ainda não existem marcações com este serviço.
                 </div>
               ) : (
                 service.appointments.map((appointment) => (

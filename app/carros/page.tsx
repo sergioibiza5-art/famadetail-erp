@@ -1,12 +1,15 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
 import { Car, Plus } from "lucide-react"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
 async function createVehicle(formData: FormData) {
   "use server"
+
+  await requireAdmin()
 
   const customerId = String(formData.get("customerId") || "")
   const brand = String(formData.get("brand") || "").trim()
@@ -57,10 +60,10 @@ export default async function VehiclesPage() {
             Carros
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Gestao de veiculos
+            Gestão de veículos
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Abre o historico para fotos, marcacoes e evolucao do carro.
+            Abre o histórico para fotos, marcações e evolucao do carro.
           </p>
         </div>
 
@@ -80,7 +83,7 @@ export default async function VehiclesPage() {
             </div>
             <div>
               <h2 className="text-lg font-semibold">Adicionar carro</h2>
-              <p className="text-sm text-zinc-400">Criar novo veiculo</p>
+              <p className="text-sm text-zinc-400">Criar novo veículo</p>
             </div>
           </div>
 

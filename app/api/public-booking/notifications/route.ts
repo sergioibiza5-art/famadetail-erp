@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server"
+import { requireAdmin } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
 
 export async function GET() {
+  await requireAdmin()
+
   const [pendingCount, latestRequest] = await Promise.all([
     prisma.appointment.count({
       where: {
         status: "PENDING",
         notes: {
-          contains: "Pedido criado pela pagina publica.",
+          contains: "Pedido criado pela p",
         },
       },
     }),
@@ -17,7 +20,7 @@ export async function GET() {
       where: {
         status: "PENDING",
         notes: {
-          contains: "Pedido criado pela pagina publica.",
+          contains: "Pedido criado pela p",
         },
       },
       select: {
