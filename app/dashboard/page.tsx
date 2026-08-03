@@ -1,5 +1,6 @@
 import Image from "next/image"
 import Link from "next/link"
+import type { ReactNode } from "react"
 import {
   CalendarDays,
   Car,
@@ -12,6 +13,21 @@ import {
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+
+type DashboardAppointment = {
+  id: string
+  orderNumber: string | null
+  title: string
+  date: Date
+  endDate: Date | null
+  status: string
+  groupId: string | null
+  isPaid: boolean
+  paymentMethod: string | null
+  customer: { name: string }
+  vehicle: { brand: string; model: string }
+  serviceTemplate: { name: string; price: number; durationMinutes: number } | null
+}
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-PT", {
@@ -53,6 +69,58 @@ function getPaymentMethodLabel(method: string | null) {
     default:
       return "Por pagar"
   }
+}
+
+function groupAppointments(appointments: DashboardAppointment[]) {
+  const groups = new Map<string, DashboardAppointment[]>()
+
+  for (const appointment of appointments) {
+    const key = appointment.groupId || appointment.orderNumber || appointment.id
+    const group = groups.get(key) || []
+    group.push(appointment)
+    groups.set(key, group)
+  }
+
+  return [...groups.values()]
+    .map((items) => {
+      const sortedItems = [...items].sort((a, b) => a.date.getTime() - b.date.getTime())
+      const first = sortedItems[0]
+      const last = sortedItems[sortedItems.length - 1]
+      const endDate = sortedItems.reduce<Date | null>((latest, appointment) => {
+        if (!appointment.endDate) return latest
+        if (!latest || appointment.endDate > latest) return appointment.endDate
+        return latest
+      }, last.endDate)
+      const totalPrice = sortedItems.reduce(
+        (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
+        0
+      )
+      const paidCount = sortedItems.filter((appointment) => appointment.isPaid).length
+
+      return {
+        id: first.id,
+        orderNumber: first.orderNumber,
+        title:
+          sortedItems.length === 1
+            ? sortedItems[0].serviceTemplate?.name || sortedItems[0].title
+            : `${sortedItems.length} serviços`,
+        date: first.date,
+        endDate,
+        status: first.status,
+        customer: first.customer,
+        vehicle: first.vehicle,
+        serviceCount: sortedItems.length,
+        services: sortedItems.map(
+          (appointment) => appointment.serviceTemplate?.name || appointment.title
+        ),
+        totalPrice,
+        isPaid: paidCount === sortedItems.length,
+        isPartiallyPaid: paidCount > 0 && paidCount < sortedItems.length,
+        paymentMethod:
+          sortedItems.find((appointment) => appointment.paymentMethod)?.paymentMethod || null,
+      }
+    })
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
 }
 
 export default async function DashboardPage() {
@@ -110,7 +178,7 @@ export default async function DashboardPage() {
       orderBy: {
         date: "desc",
       },
-      take: 5,
+      take: 30,
     }),
     prisma.appointment.findMany({
       where: {
@@ -138,11 +206,15 @@ export default async function DashboardPage() {
     }),
   ])
 
-  const customerRequestIds = new Set(
-    customerRequests.map((appointment) => appointment.id)
+  const customerRequestIds = new Set(customerRequests.map((appointment) => appointment.id))
+  const activeAppointments = activeAppointmentCandidates.filter(
+    (appointment) => !customerRequestIds.has(appointment.id)
   )
-  const activeAppointments = activeAppointmentCandidates
-    .filter((appointment) => !customerRequestIds.has(appointment.id))
+  const customerRequestGroups = groupAppointments(customerRequests)
+  const activeAppointmentGroups = groupAppointments(activeAppointments)
+  const completedAppointmentGroups = groupAppointments(completedAppointments)
+    .sort((a, b) => b.date.getTime() - a.date.getTime())
+    .slice(0, 5)
   const lowStockProducts = productsForStockCheck
     .filter((product) => product.stock <= product.minStock)
     .sort((a, b) => {
@@ -169,7 +241,7 @@ export default async function DashboardPage() {
     {
       label: "Clientes",
       value: customerCount,
-      detail: `${customerRequests.length} pedido(s) pendente(s)`,
+      detail: `${customerRequestGroups.length} pedido(s) pendente(s)`,
       icon: Users,
     },
     {
@@ -179,7 +251,7 @@ export default async function DashboardPage() {
       icon: Car,
     },
     {
-      label: "Concluidos",
+      label: "Concluídos",
       value: completedMetrics.length,
       detail: "Serviços terminados",
       icon: CheckCircle,
@@ -211,7 +283,7 @@ export default async function DashboardPage() {
             </h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-zinc-400">
               Agenda, pagamentos e trabalhos recentes num painel mais limpo para
-              uso rápido no telemovel.
+              uso rápido no telemóvel.
             </p>
           </div>
 
@@ -254,7 +326,7 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {customerRequests.length > 0 && (
+      {customerRequestGroups.length > 0 && (
         <div className="mt-4 overflow-hidden rounded-2xl border border-red-400/20 bg-red-500/5">
           <div className="border-b border-red-400/20 p-4 sm:p-5">
             <div className="flex items-center justify-between gap-3">
@@ -266,45 +338,19 @@ export default async function DashboardPage() {
               </div>
 
               <span className="rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-200">
-                {customerRequests.length} pendente(s)
+                {customerRequestGroups.length} pendente(s)
               </span>
             </div>
           </div>
 
           <div className="divide-y divide-red-400/10">
-            {customerRequests.map((appointment) => (
-              <Link
+            {customerRequestGroups.map((appointment) => (
+              <DashboardAppointmentRow
                 key={appointment.id}
-                href={`/agenda/${appointment.id}`}
-                className="grid gap-3 p-4 transition hover:bg-white/5 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5"
-              >
-                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">
-                  <CalendarDays className="h-5 w-5" />
-                </div>
-
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-white">
-                    {appointment.serviceTemplate?.name || appointment.title}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-red-200">
-                    {appointment.orderNumber || "Sem OS"}
-                  </p>
-
-                  <p className="mt-1 truncate text-sm text-zinc-400">
-                    {appointment.customer.name} · {appointment.vehicle.brand}{" "}
-                    {appointment.vehicle.model}
-                  </p>
-                </div>
-
-                <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
-                  <p className="text-sm text-zinc-300">
-                    {formatDate(appointment.date)}
-                  </p>
-                  <p className="mt-1 w-fit rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200 sm:ml-auto">
-                    Pendente
-                  </p>
-                </div>
-              </Link>
+                appointment={appointment}
+                icon={<CalendarDays className="h-5 w-5" />}
+                tone="red"
+              />
             ))}
           </div>
         </div>
@@ -317,7 +363,7 @@ export default async function DashboardPage() {
               <div>
                 <h2 className="text-lg font-semibold">Produtos com stock baixo</h2>
                 <p className="text-sm text-zinc-400">
-                  Lista rapida do que precisa de comprar.
+                  Lista rápida do que precisa de comprar.
                 </p>
               </div>
 
@@ -372,49 +418,24 @@ export default async function DashboardPage() {
             <h2 className="text-lg font-semibold">Agenda ativa</h2>
 
             <p className="text-sm text-zinc-400">
-              {activeAppointments.length} trabalho(s) em aberto
+              {activeAppointmentGroups.length} agendamento(s) em aberto
             </p>
           </div>
 
           <div className="divide-y divide-white/10">
-            {activeAppointments.length === 0 ? (
+            {activeAppointmentGroups.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
                 Nenhuma marcação ativa.
               </div>
             ) : (
-              activeAppointments.map((appointment) => (
-                <Link
+              activeAppointmentGroups.map((appointment) => (
+                <DashboardAppointmentRow
                   key={appointment.id}
-                  href={`/agenda/${appointment.id}`}
-                  className="grid gap-3 p-4 transition hover:bg-white/5 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5"
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-red-500/10 text-red-300">
-                    <CalendarDays className="h-5 w-5" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-white">
-                      {appointment.serviceTemplate?.name || appointment.title}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-red-200">
-                      {appointment.orderNumber || "Sem OS"}
-                    </p>
-
-                    <p className="mt-1 truncate text-sm text-zinc-400">
-                      {appointment.customer.name} · {appointment.vehicle.brand}{" "}
-                      {appointment.vehicle.model}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
-                    <p className="text-sm text-zinc-300">
-                      {formatDate(appointment.date)}
-                    </p>
-                    <p className="mt-1 w-fit rounded-full border border-red-400/20 bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-200 sm:ml-auto">
-                      {getStatusLabel(appointment.status)}
-                    </p>
-                  </div>
-                </Link>
+                  appointment={appointment}
+                  icon={<CalendarDays className="h-5 w-5" />}
+                  status={getStatusLabel(appointment.status)}
+                  tone="red"
+                />
               ))
             )}
           </div>
@@ -422,67 +443,108 @@ export default async function DashboardPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0C]">
           <div className="border-b border-white/10 p-4 sm:p-5">
-            <h2 className="text-lg font-semibold">Ultimos concluidos</h2>
+            <h2 className="text-lg font-semibold">Últimos concluídos</h2>
 
             <p className="text-sm text-zinc-400">
-              Trabalhos terminados mais recentes
+              Agendamentos terminados mais recentes
             </p>
           </div>
 
           <div className="divide-y divide-white/10">
-            {completedAppointments.length === 0 ? (
+            {completedAppointmentGroups.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
                 Nenhuma marcação concluída.
               </div>
             ) : (
-              completedAppointments.map((appointment) => (
-                <Link
+              completedAppointmentGroups.map((appointment) => (
+                <DashboardAppointmentRow
                   key={appointment.id}
-                  href={`/agenda/${appointment.id}`}
-                  className="grid gap-3 p-4 transition hover:bg-white/5 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5"
-                >
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/5 text-zinc-300">
-                    <Wrench className="h-5 w-5" />
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-white">
-                      {appointment.serviceTemplate?.name || appointment.title}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-red-200">
-                      {appointment.orderNumber || "Sem OS"}
-                    </p>
-
-                    <p className="mt-1 truncate text-sm text-zinc-400">
-                      {appointment.customer.name} · {appointment.vehicle.brand}{" "}
-                      {appointment.vehicle.model}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
-                    <p className="text-sm font-semibold text-white">
-                      {appointment.serviceTemplate
-                        ? formatMoney(appointment.serviceTemplate.price)
-                        : "-"}
-                    </p>
-                    <p
-                      className={`mt-1 w-fit rounded-full border px-3 py-1 text-xs font-semibold sm:ml-auto ${
-                        appointment.isPaid
-                          ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
-                          : "border-amber-400/20 bg-amber-500/10 text-amber-200"
-                      }`}
-                    >
-                      {appointment.isPaid
-                        ? getPaymentMethodLabel(appointment.paymentMethod)
-                        : "Por pagar"}
-                    </p>
-                  </div>
-                </Link>
+                  appointment={appointment}
+                  icon={<Wrench className="h-5 w-5" />}
+                  status={
+                    appointment.isPaid
+                      ? getPaymentMethodLabel(appointment.paymentMethod)
+                      : appointment.isPartiallyPaid
+                        ? "Parcial"
+                        : "Por pagar"
+                  }
+                  amount={formatMoney(appointment.totalPrice)}
+                  tone="zinc"
+                  paid={appointment.isPaid}
+                  partial={appointment.isPartiallyPaid}
+                />
               ))
             )}
           </div>
         </div>
       </div>
     </section>
+  )
+}
+
+function DashboardAppointmentRow({
+  amount,
+  appointment,
+  icon,
+  paid = false,
+  partial = false,
+  status,
+  tone,
+}: {
+  amount?: string
+  appointment: ReturnType<typeof groupAppointments>[number]
+  icon: ReactNode
+  paid?: boolean
+  partial?: boolean
+  status?: string
+  tone: "red" | "zinc"
+}) {
+  return (
+    <Link
+      href={`/agenda/${appointment.id}`}
+      className="grid gap-3 p-4 transition hover:bg-white/5 sm:grid-cols-[44px_1fr_auto] sm:items-center sm:p-5"
+    >
+      <div
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl ${
+          tone === "red" ? "bg-red-500/10 text-red-300" : "bg-white/5 text-zinc-300"
+        }`}
+      >
+        {icon}
+      </div>
+
+      <div className="min-w-0">
+        <p className="truncate font-semibold text-white">{appointment.title}</p>
+        <p className="mt-1 text-xs font-semibold text-red-200">
+          {appointment.orderNumber || "Sem OS"} · {appointment.serviceCount} serviço(s)
+        </p>
+
+        <p className="mt-1 truncate text-sm text-zinc-400">
+          {appointment.customer.name} · {appointment.vehicle.brand}{" "}
+          {appointment.vehicle.model}
+        </p>
+        <p className="mt-1 truncate text-xs text-zinc-500">
+          {appointment.services.join(" · ")}
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 sm:block sm:text-right">
+        <p className="text-sm font-semibold text-white">
+          {amount || formatDate(appointment.date)}
+        </p>
+        {status && (
+          <p
+            className={`mt-1 w-fit rounded-full border px-3 py-1 text-xs font-semibold sm:ml-auto ${
+              paid
+                ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-300"
+                : partial
+                  ? "border-sky-400/20 bg-sky-500/10 text-sky-200"
+                  : "border-red-400/20 bg-red-500/10 text-red-200"
+            }`}
+          >
+            {status}
+          </p>
+        )}
+      </div>
+    </Link>
   )
 }
