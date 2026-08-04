@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CheckCircle,
   CreditCard,
+  Download,
   Euro,
   Package,
   TrendingUp,
@@ -360,8 +361,17 @@ export default async function AnalyticsPage() {
           </p>
         </div>
 
-        <div className="w-fit rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-300">
-          Dados em tempo real
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href="/api/analytics/monthly-export"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold text-zinc-200 transition hover:bg-white/10"
+          >
+            <Download className="h-4 w-4" />
+            Exportar mes
+          </Link>
+          <div className="w-fit rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-zinc-300">
+            Dados em tempo real
+          </div>
         </div>
       </div>
 

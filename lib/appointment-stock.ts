@@ -16,7 +16,7 @@ export async function updateAppointmentStatusWithStock(
   await prisma.$transaction(async (tx) => {
     const existing = await tx.appointment.findUnique({
       where: { id: appointmentId },
-      select: { status: true },
+      select: { status: true, title: true, vehicleId: true },
     })
 
     await tx.appointment.update({
@@ -26,6 +26,17 @@ export async function updateAppointmentStatusWithStock(
 
     shouldSendConfirmation =
       status === "CONFIRMED" && existing?.status !== "CONFIRMED"
+
+    if (existing && existing.status !== status) {
+      await tx.vehicleTimeline.create({
+        data: {
+          vehicleId: existing.vehicleId,
+          type: "STATUS_CHANGED",
+          title: "Estado atualizado",
+          description: `${existing.title}: ${existing.status} -> ${status}`,
+        },
+      })
+    }
 
     if (status !== "COMPLETED") {
       await revertAppointmentStockConsumption(tx, appointmentId)

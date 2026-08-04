@@ -1,11 +1,17 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { ArrowLeft, CheckCircle, WalletCards } from "lucide-react"
+import { ArrowLeft, CheckCircle, RefreshCcw, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { SaveSubmitButton } from "@/components/save-submit-button"
 import { requireAdmin } from "@/lib/auth"
-import { accountLabel, formatMoney, payWorkerAccount, roundMoney } from "@/lib/finance"
+import {
+  accountLabel,
+  formatMoney,
+  payWorkerAccount,
+  redistributeAccountCredit,
+  roundMoney,
+} from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -49,6 +55,27 @@ async function createFinancialAdjustment(formData: FormData) {
   revalidatePath("/dashboard")
 
   redirect("/financeiro/acertos?saved=1")
+}
+
+async function recalculateFinance() {
+  "use server"
+
+  await requireAdmin()
+
+  await Promise.all(
+    Object.values(WorkerAccount).map((account) =>
+      redistributeAccountCredit(account)
+    )
+  )
+
+  revalidatePath("/financeiro")
+  revalidatePath("/financeiro/movimentos")
+  revalidatePath("/financeiro/acertos")
+  revalidatePath("/dashboard")
+  revalidatePath("/analytics")
+  revalidatePath("/agenda")
+
+  redirect("/financeiro/acertos?saved=recalculate")
 }
 
 function methodLabel(method: PaymentMethod | null) {
@@ -100,16 +127,44 @@ export default async function FinancialAdjustmentsPage({ searchParams }: Props) 
         <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
           <div className="flex items-center gap-3">
             <CheckCircle className="h-5 w-5 text-emerald-300" />
-            <p className="font-semibold">Acerto guardado e financeiro atualizado.</p>
+            <p className="font-semibold">
+              {params.saved === "recalculate"
+                ? "Financeiro recalculado e saldos atualizados."
+                : "Acerto guardado e financeiro atualizado."}
+            </p>
           </div>
         </div>
       )}
 
       <div className="grid gap-4 xl:grid-cols-[420px_1fr]">
-        <form
-          action={createFinancialAdjustment}
-          className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
-        >
+        <div className="space-y-4">
+          <form
+            action={recalculateFinance}
+            className="rounded-3xl border border-amber-400/20 bg-amber-500/5 p-4 sm:p-5"
+          >
+            <div className="mb-4 flex items-center gap-3">
+              <div className="rounded-2xl bg-amber-500/10 p-3 text-amber-200">
+                <RefreshCcw className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold">Recalcular saldos</h2>
+                <p className="text-sm text-zinc-400">
+                  Reorganiza pagamentos e saldos a favor pelas contas.
+                </p>
+              </div>
+            </div>
+            <SaveSubmitButton
+              className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm font-black text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-wait disabled:opacity-70"
+              pendingText="A recalcular..."
+            >
+              Recalcular financeiro
+            </SaveSubmitButton>
+          </form>
+
+          <form
+            action={createFinancialAdjustment}
+            className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
+          >
           <div className="mb-5 flex items-center gap-3">
             <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
               <WalletCards className="h-5 w-5" />
@@ -191,7 +246,8 @@ export default async function FinancialAdjustmentsPage({ searchParams }: Props) 
           >
             Guardar acerto
           </SaveSubmitButton>
-        </form>
+          </form>
+        </div>
 
         <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
           <div className="border-b border-white/10 p-4 sm:p-5">

@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { randomUUID } from "node:crypto"
 import { revalidatePath } from "next/cache"
+import { redirect } from "next/navigation"
 import { AppointmentStatus } from "@prisma/client"
 import { CalendarDays, CheckCircle, Clock, Euro, XCircle } from "lucide-react"
 import { AgendaCreateForm } from "@/components/agenda-create-form"
@@ -17,6 +18,7 @@ type AgendaPageProps = {
     q?: string
     status?: string
     day?: string
+    error?: string
   }>
 }
 
@@ -169,7 +171,34 @@ async function createAppointment(formData: FormData) {
     .filter(Boolean)
 
   let cursor = new Date(dateValue)
+  const startDate = new Date(cursor)
+  const endDate = selectedTemplates.reduce(
+    (date, template) =>
+      template
+        ? new Date(date.getTime() + template.durationMinutes * 60000)
+        : date,
+    new Date(startDate)
+  )
   const groupId = selectedTemplates.length > 1 ? randomUUID() : null
+
+  const overlappingAppointment = await prisma.appointment.findFirst({
+    where: {
+      status: {
+        notIn: ["COMPLETED", "CANCELLED"],
+      },
+      date: {
+        lt: endDate,
+      },
+      endDate: {
+        gt: startDate,
+      },
+    },
+    select: { id: true },
+  })
+
+  if (overlappingAppointment) {
+    redirect("/agenda?error=overlap")
+  }
 
   await prisma.$transaction(async (tx) => {
     const appointmentOrderNumber = await nextServiceOrderNumber(tx, cursor)
@@ -245,6 +274,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
   const q = String(filters?.q || "").trim().toLowerCase()
   const statusFilter = String(filters?.status || "")
   const dayFilter = String(filters?.day || "")
+  const error = String(filters?.error || "")
 
   const [customers, vehicles, services, appointments] = await Promise.all([
     prisma.customer.findMany({ orderBy: { name: "asc" } }),
@@ -366,6 +396,12 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
           createAppointment={createAppointment}
         />
         <div className="space-y-4">
+          {error === "overlap" && (
+            <div className="rounded-3xl border border-amber-400/25 bg-amber-500/10 p-4 text-sm text-amber-100">
+              Ja existe uma marcacao ativa nesse horario. Ajusta a hora antes de guardar.
+            </div>
+          )}
+
           <form className="grid gap-3 rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:grid-cols-[1fr_160px_160px_auto] sm:items-end">
             <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
               Procurar

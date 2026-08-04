@@ -30,7 +30,11 @@ import {
   redistributeAccountCredit,
   roundMoney,
 } from "@/lib/finance"
-import { quietly, sendVehicleReadyEmail } from "@/lib/notifications"
+import {
+  quietly,
+  sendAppointmentConfirmationEmail,
+  sendVehicleReadyEmail,
+} from "@/lib/notifications"
 import { prisma } from "@/lib/prisma"
 import { nextServiceOrderNumber } from "@/lib/service-order"
 
@@ -251,9 +255,11 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
         ? "Percentagens guardadas e valores atualizados."
         : feedback?.saved === "appointment"
           ? "Cliente e carro guardados no agendamento."
-          : feedback?.saved === "finance-error"
-            ? "Percentagens não guardadas. O total tem de ser 100%."
-            : null
+          : feedback?.saved === "notification"
+            ? "Aviso enviado ao cliente."
+            : feedback?.saved === "finance-error"
+              ? "Percentagens nao guardadas. O total tem de ser 100%."
+              : null
   const savedIsError = feedback?.saved === "finance-error"
 
   const appointment = await prisma.appointment.findUnique({
@@ -324,8 +330,8 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
         ? (paymentMethodValue as PaymentMethod)
         : null
 
-    await prisma.appointment.update({
-      where: { id },
+    await prisma.appointment.updateMany({
+      where: appointmentGroupId ? { groupId: appointmentGroupId } : { id },
       data: {
         isPaid,
         paymentMethod,
@@ -468,6 +474,29 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     await quietly(sendVehicleReadyEmail(item))
 
     revalidatePath(`/agenda/${id}`)
+    redirect(`/agenda/${id}?saved=notification`)
+  }
+
+  async function sendConfirmationNotification() {
+    "use server"
+
+    await requireAdmin()
+
+    const item = await prisma.appointment.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        vehicle: true,
+        serviceTemplate: true,
+      },
+    })
+
+    if (!item?.customer.email) return
+
+    await quietly(sendAppointmentConfirmationEmail(item))
+
+    revalidatePath(`/agenda/${id}`)
+    redirect(`/agenda/${id}?saved=notification`)
   }
 
   async function updateAppointmentCustomerAndVehicle(formData: FormData) {
@@ -760,6 +789,22 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     (sum, split) => sum + split.percentage,
     0
   )
+  const paidServiceCount = groupedAppointments.filter((item) => item.isPaid).length
+  const paidAppointmentTotal = groupedAppointments.reduce(
+    (sum, item) =>
+      roundMoney(sum + (item.isPaid ? item.serviceTemplate?.price || 0 : 0)),
+    0
+  )
+  const missingAppointmentPayment = Math.max(
+    0,
+    roundMoney(totalPrice - paidAppointmentTotal)
+  )
+  const serviceStatusCounts = Object.values(AppointmentStatus)
+    .map((status) => ({
+      status,
+      count: groupedAppointments.filter((item) => item.status === status).length,
+    }))
+    .filter((item) => item.count > 0)
   const lastFinanceUpdatedAt = financeSplits.reduce<Date | null>((latest, split) => {
     if (!latest || split.updatedAt > latest) return split.updatedAt
     return latest
@@ -873,6 +918,21 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
                   <p className="mt-2 font-semibold">{groupedAppointments.length}</p>
                 </div>
               </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+                <p className="text-xs uppercase tracking-wider text-zinc-500">
+                  Progresso da OS
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {serviceStatusCounts.map((item) => (
+                    <span
+                      key={item.status}
+                      className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-zinc-200"
+                    >
+                      {item.count} {statusLabel(item.status)}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -913,7 +973,30 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
               </div>
               <div>
                 <h2 className="text-lg font-semibold">Pagamento</h2>
-                <p className="text-sm text-zinc-400">Marca se já foi pago</p>
+                <p className="text-sm text-zinc-400">Marca a OS inteira como paga</p>
+              </div>
+            </div>
+
+            <div className="mb-3 grid gap-2 text-sm sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                <p className="text-xs uppercase tracking-wider text-zinc-500">Total</p>
+                <p className="mt-1 font-semibold">{formatMoney(totalPrice)}</p>
+              </div>
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-3">
+                <p className="text-xs uppercase tracking-wider text-emerald-200/70">
+                  Pago
+                </p>
+                <p className="mt-1 font-semibold text-emerald-100">
+                  {formatMoney(paidAppointmentTotal)}
+                </p>
+              </div>
+              <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-3">
+                <p className="text-xs uppercase tracking-wider text-amber-200/70">
+                  Falta
+                </p>
+                <p className="mt-1 font-semibold text-amber-100">
+                  {formatMoney(missingAppointmentPayment)}
+                </p>
               </div>
             </div>
 
@@ -951,7 +1034,8 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
             </div>
 
             <div className="mt-3 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-4 py-3 text-xs text-emerald-100">
-              Guardado: {appointment.isPaid ? `Pago · ${methodLabel(appointment.paymentMethod)}` : "Por pagar"}
+              Guardado: {paidServiceCount}/{groupedAppointments.length} servico(s)
+              pago(s) nesta OS.
             </div>
 
             <SaveSubmitButton
@@ -1131,6 +1215,16 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
                   Abrir histórico
                 </Link>
               </div>
+            </form>
+
+            <form action={sendConfirmationNotification}>
+              <button
+                disabled={!appointment.customer.email}
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-xs font-black text-white transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Mail className="h-4 w-4" />
+                Enviar confirmação da marcação
+              </button>
             </form>
 
             <form action={sendReadyNotification}>

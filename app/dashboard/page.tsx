@@ -225,6 +225,15 @@ export default async function DashboardPage() {
   )
   const customerRequestGroups = groupAppointments(customerRequests)
   const activeAppointmentGroups = groupAppointments(activeAppointments)
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+  const todayEnd = new Date(todayStart)
+  todayEnd.setDate(todayEnd.getDate() + 1)
+  const todayAppointmentGroups = groupAppointments(
+    activeAppointments.filter(
+      (appointment) => appointment.date >= todayStart && appointment.date < todayEnd
+    )
+  )
   const completedAppointmentGroups = groupAppointments(completedAppointments)
     .sort((a, b) => b.date.getTime() - a.date.getTime())
     .slice(0, 5)
@@ -387,6 +396,43 @@ export default async function DashboardPage() {
             </Link>
           )
         })}
+      </div>
+
+      <div className="mt-4 overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0C]">
+        <div className="border-b border-white/10 p-4 sm:p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Hoje</h2>
+              <p className="text-sm text-zinc-400">
+                {todayAppointmentGroups.length} OS ativa(s) para hoje
+              </p>
+            </div>
+            <Link
+              href="/agenda"
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold text-zinc-200 transition hover:bg-white/10"
+            >
+              Abrir agenda
+            </Link>
+          </div>
+        </div>
+
+        <div className="divide-y divide-white/10">
+          {todayAppointmentGroups.length === 0 ? (
+            <div className="p-6 text-center text-sm text-zinc-500">
+              Nenhuma OS ativa para hoje.
+            </div>
+          ) : (
+            todayAppointmentGroups.map((appointment) => (
+              <DashboardAppointmentRow
+                key={appointment.id}
+                appointment={appointment}
+                icon={<CalendarDays className="h-5 w-5" />}
+                status={getStatusLabel(appointment.status)}
+                tone="red"
+              />
+            ))
+          )}
+        </div>
       </div>
 
       {customerRequestGroups.length > 0 && (

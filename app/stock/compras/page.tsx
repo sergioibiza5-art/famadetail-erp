@@ -1,4 +1,5 @@
 import Link from "next/link"
+import { AppointmentStatus } from "@prisma/client"
 import { ArrowLeft, Package, ShoppingCart } from "lucide-react"
 import { requireAdmin } from "@/lib/auth"
 import { formatMoney } from "@/lib/finance"
@@ -10,27 +11,62 @@ export const dynamic = "force-dynamic"
 export default async function ShoppingListPage() {
   await requireAdmin()
 
-  const products = await prisma.product.findMany({
-    where: {
-      minStock: {
-        gt: 0,
+  const [products, activeAppointments] = await Promise.all([
+    prisma.product.findMany({
+      where: {
+        minStock: {
+          gt: 0,
+        },
       },
-    },
-    orderBy: { name: "asc" },
-  })
+      orderBy: { name: "asc" },
+    }),
+    prisma.appointment.findMany({
+      where: {
+        status: {
+          in: [
+            AppointmentStatus.PENDING,
+            AppointmentStatus.CONFIRMED,
+            AppointmentStatus.IN_PROGRESS,
+          ],
+        },
+      },
+      include: {
+        serviceTemplate: {
+          include: {
+            productUsages: true,
+          },
+        },
+      },
+    }),
+  ])
+
+  const projectedConsumption = new Map<string, number>()
+
+  for (const appointment of activeAppointments) {
+    for (const usage of appointment.serviceTemplate?.productUsages || []) {
+      projectedConsumption.set(
+        usage.productId,
+        (projectedConsumption.get(usage.productId) || 0) + Math.abs(usage.quantity)
+      )
+    }
+  }
 
   const lowStock = products
-    .filter((product) => product.stock <= product.minStock)
     .map((product) => {
-      const missing = Math.max(0, product.minStock - product.stock)
+      const reserved = projectedConsumption.get(product.id) || 0
+      const projectedStock = product.stock - reserved
+      const missing = Math.max(0, product.minStock - projectedStock)
       const unitCost = getProductUnitCost(product)
 
       return {
         ...product,
+        reserved,
+        projectedStock,
         missing,
         estimatedCost: missing * unitCost,
       }
     })
+    .filter((product) => product.missing > 0)
     .sort((a, b) => b.missing - a.missing)
 
   const totalEstimatedCost = lowStock.reduce(
@@ -57,7 +93,7 @@ export default async function ShoppingListPage() {
             Lista de compras
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Produtos abaixo do mínimo, com quantidade recomendada para repor.
+            Produtos abaixo do minimo ou em risco com os servicos ja marcados.
           </p>
         </div>
 
@@ -84,14 +120,14 @@ export default async function ShoppingListPage() {
         <div className="divide-y divide-white/10">
           {lowStock.length === 0 ? (
             <div className="p-8 text-center text-sm text-zinc-500">
-              Nenhum produto abaixo do mínimo.
+              Nenhum produto abaixo do minimo nem em risco pela agenda ativa.
             </div>
           ) : (
             lowStock.map((product) => (
               <Link
                 key={product.id}
                 href={`/stock/${product.id}`}
-                className="grid gap-3 p-4 transition hover:bg-white/[0.03] sm:grid-cols-[44px_1fr_130px_130px_120px] sm:items-center"
+                className="grid gap-3 p-4 transition hover:bg-white/[0.03] sm:grid-cols-[44px_1fr_120px_120px_120px_130px] sm:items-center"
               >
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-200">
                   <Package className="h-5 w-5" />
@@ -99,7 +135,7 @@ export default async function ShoppingListPage() {
                 <div>
                   <p className="font-semibold text-white">{product.name}</p>
                   <p className="mt-1 text-sm text-zinc-400">
-                    {productTypeLabel(product.type)} · mínimo {product.minStock}{" "}
+                    {productTypeLabel(product.type)} · minimo {product.minStock}{" "}
                     {product.unit || "un"}
                   </p>
                 </div>
@@ -110,14 +146,21 @@ export default async function ShoppingListPage() {
                   </p>
                 </div>
                 <div className="text-sm">
-                  <p className="text-zinc-500">Comprar</p>
-                  <p className="font-semibold text-amber-100">
-                    {product.missing} {product.unit || "un"}
+                  <p className="text-zinc-500">Reservado</p>
+                  <p className="font-semibold text-white">
+                    {product.reserved} {product.unit || "un"}
                   </p>
                 </div>
                 <div className="text-sm">
-                  <p className="text-zinc-500">Estimado</p>
+                  <p className="text-zinc-500">Previsto</p>
+                  <p className="font-semibold text-amber-100">
+                    {product.projectedStock} {product.unit || "un"}
+                  </p>
+                </div>
+                <div className="text-sm">
+                  <p className="text-zinc-500">Comprar</p>
                   <p className="font-semibold text-white">
+                    {product.missing} {product.unit || "un"} ·{" "}
                     {formatMoney(product.estimatedCost)}
                   </p>
                 </div>
