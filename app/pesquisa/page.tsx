@@ -1,8 +1,18 @@
 import Link from "next/link"
 import type { ComponentType, ReactNode } from "react"
-import { CalendarDays, Car, Search, User, Wrench } from "lucide-react"
+import {
+  CalendarDays,
+  Car,
+  Package,
+  Receipt,
+  Search,
+  User,
+  WalletCards,
+  Wrench,
+} from "lucide-react"
+import { WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { formatMoney } from "@/lib/finance"
+import { accountLabel, formatMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -24,8 +34,11 @@ export default async function SearchPage({ searchParams }: Props) {
   const params = await searchParams
   const q = String(params?.q || "").trim()
   const hasQuery = q.length >= 2
+  const matchingAccounts = Object.values(WorkerAccount).filter((account) =>
+    `${account} ${accountLabel(account)}`.toLowerCase().includes(q.toLowerCase())
+  )
 
-  const [customers, vehicles, appointments, services] = hasQuery
+  const [customers, vehicles, appointments, services, products, expenses, movements] = hasQuery
     ? await Promise.all([
         prisma.customer.findMany({
           where: {
@@ -58,7 +71,9 @@ export default async function SearchPage({ searchParams }: Props) {
               { orderNumber: { contains: q, mode: "insensitive" } },
               { notes: { contains: q, mode: "insensitive" } },
               { customer: { name: { contains: q, mode: "insensitive" } } },
+              { customer: { phone: { contains: q, mode: "insensitive" } } },
               { vehicle: { plate: { contains: q, mode: "insensitive" } } },
+              { serviceTemplate: { name: { contains: q, mode: "insensitive" } } },
             ],
           },
           include: {
@@ -79,10 +94,49 @@ export default async function SearchPage({ searchParams }: Props) {
           orderBy: { name: "asc" },
           take: 12,
         }),
+        prisma.product.findMany({
+          where: {
+            OR: [
+              { name: { contains: q, mode: "insensitive" } },
+              { notes: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          orderBy: { name: "asc" },
+          take: 12,
+        }),
+        prisma.expense.findMany({
+          where: {
+            OR: [
+              { title: { contains: q, mode: "insensitive" } },
+              { notes: { contains: q, mode: "insensitive" } },
+            ],
+          },
+          orderBy: { createdAt: "desc" },
+          take: 12,
+        }),
+        prisma.paymentMovement.findMany({
+          where: {
+            OR: [
+              { notes: { contains: q, mode: "insensitive" } },
+              ...(matchingAccounts.length > 0
+                ? matchingAccounts.map((account) => ({ account }))
+                : []),
+            ],
+          },
+          orderBy: { paidAt: "desc" },
+          take: 12,
+        }),
       ])
-    : [[], [], [], []]
+    : [[], [], [], [], [], [], []]
 
-  const totalResults = customers.length + vehicles.length + appointments.length + services.length
+  const totalResults =
+    customers.length +
+    vehicles.length +
+    appointments.length +
+    services.length +
+    products.length +
+    expenses.length +
+    movements.length
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -94,7 +148,7 @@ export default async function SearchPage({ searchParams }: Props) {
           Pesquisa global
         </h1>
         <p className="mt-2 text-sm text-zinc-400">
-          Procura por cliente, telefone, matrícula, carro, marcação ou serviço.
+          Procura por cliente, telefone, matrícula, carro, OS, serviço, produto, despesa ou movimento.
         </p>
       </div>
 
@@ -105,7 +159,7 @@ export default async function SearchPage({ searchParams }: Props) {
             name="q"
             defaultValue={q}
             autoFocus
-            placeholder="Nome, matrícula, telefone..."
+            placeholder="Nome, matrícula, telefone, OS, produto..."
             className="w-full rounded-2xl border border-white/10 bg-white/5 py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
           />
         </label>
@@ -171,6 +225,44 @@ export default async function SearchPage({ searchParams }: Props) {
               </ResultLink>
             ))}
           </ResultSection>
+
+          <ResultSection title="Produtos" icon={Package} count={products.length}>
+            {products.map((product) => (
+              <ResultLink key={product.id} href={`/stock/${product.id}`}>
+                <span className="font-semibold text-white">{product.name}</span>
+                <span className="text-sm text-zinc-400">
+                  Stock: {product.stock} {product.unit || "un"} · mínimo: {product.minStock}
+                </span>
+              </ResultLink>
+            ))}
+          </ResultSection>
+
+          <ResultSection title="Despesas" icon={Receipt} count={expenses.length}>
+            {expenses.map((expense) => (
+              <ResultLink key={expense.id} href="/despesas">
+                <span className="font-semibold text-white">{expense.title}</span>
+                <span className="text-sm text-zinc-400">
+                  {formatMoney(expense.amount)} · {formatDate(expense.createdAt)}
+                </span>
+              </ResultLink>
+            ))}
+          </ResultSection>
+
+          <ResultSection title="Movimentos" icon={WalletCards} count={movements.length}>
+            {movements.map((movement) => (
+              <ResultLink
+                key={movement.id}
+                href={`/financeiro/movimentos?account=${movement.account}`}
+              >
+                <span className="font-semibold text-white">
+                  {accountLabel(movement.account)} · {movement.notes || "Pagamento"}
+                </span>
+                <span className="text-sm text-zinc-400">
+                  {formatMoney(movement.amount)} · {formatDate(movement.paidAt)}
+                </span>
+              </ResultLink>
+            ))}
+          </ResultSection>
         </div>
       )}
     </section>
@@ -202,11 +294,7 @@ function ResultSection({
         </span>
       </div>
       <div className="divide-y divide-white/10">
-        {count === 0 ? (
-          <p className="p-6 text-sm text-zinc-500">Sem resultados.</p>
-        ) : (
-          children
-        )}
+        {count === 0 ? <p className="p-6 text-sm text-zinc-500">Sem resultados.</p> : children}
       </div>
     </div>
   )

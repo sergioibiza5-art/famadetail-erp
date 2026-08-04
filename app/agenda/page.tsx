@@ -37,6 +37,11 @@ function formatTime(value: Date) {
   }).format(value)
 }
 
+function toDateInputValue(value: Date) {
+  const localDate = new Date(value.getTime() - value.getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 10)
+}
+
 function statusLabel(status: AppointmentStatus) {
   switch (status) {
     case "PENDING":
@@ -315,6 +320,23 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
   const historicAppointmentGroups = groupAppointments(historicAppointments).sort(
     (a, b) => b.date.getTime() - a.date.getTime()
   )
+  const todayValue = toDateInputValue(new Date())
+  const tomorrowDate = new Date()
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1)
+  const tomorrowValue = toDateInputValue(tomorrowDate)
+  const agendaFilterHref = (overrides: { day?: string; q?: string; status?: string }) => {
+    const params = new URLSearchParams()
+    const nextQ = overrides.q ?? q
+    const nextStatus = overrides.status ?? statusFilter
+    const nextDay = overrides.day ?? dayFilter
+
+    if (nextQ) params.set("q", nextQ)
+    if (nextStatus) params.set("status", nextStatus)
+    if (nextDay) params.set("day", nextDay)
+
+    const query = params.toString()
+    return query ? `/agenda?${query}` : "/agenda"
+  }
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -324,7 +346,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
             Agenda
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Marcações
+            Marca??es
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
             Agendamentos agrupados por OS. Abre um agendamento para ver os serviços.
@@ -381,6 +403,26 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
             <button className="min-h-12 rounded-2xl bg-zinc-100 px-4 py-3 text-sm font-black text-black transition hover:bg-white">
               Filtrar
             </button>
+            <div className="flex flex-wrap gap-2 sm:col-span-4">
+              <Link
+                href={agendaFilterHref({ day: todayValue })}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+              >
+                Hoje
+              </Link>
+              <Link
+                href={agendaFilterHref({ day: tomorrowValue })}
+                className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-zinc-300 transition hover:bg-white/10"
+              >
+                Amanhã
+              </Link>
+              <Link
+                href="/agenda"
+                className="rounded-full border border-red-300/20 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-200 transition hover:bg-red-500/20"
+              >
+                Limpar filtros
+              </Link>
+            </div>
           </form>
 
           <div className="overflow-hidden rounded-3xl border border-red-400/20 bg-red-500/5">
@@ -429,7 +471,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
           </div>
 
           <AppointmentList
-            title="Marcações ativas"
+            title="Marca??es ativas"
             subtitle="Agendamentos ativos, agrupados por OS"
             groups={activeAppointmentGroups}
           />

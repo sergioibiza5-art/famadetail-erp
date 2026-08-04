@@ -1,6 +1,6 @@
 import Link from "next/link"
 import { revalidatePath } from "next/cache"
-import { ProductType } from "@prisma/client"
+import { AppointmentStatus, ProductType } from "@prisma/client"
 import { Minus, Package, Plus, ShoppingCart } from "lucide-react"
 import { requireAdmin } from "@/lib/auth"
 import {
@@ -90,21 +90,61 @@ async function createMovement(formData: FormData) {
 }
 
 export default async function StockPage() {
-  const products = await prisma.product.findMany({
-    include: {
-      movements: {
-        orderBy: { createdAt: "desc" },
-        take: 3,
+  const [products, activeAppointments] = await Promise.all([
+    prisma.product.findMany({
+      include: {
+        movements: {
+          orderBy: { createdAt: "desc" },
+          take: 3,
+        },
       },
-    },
-    orderBy: { name: "asc" },
-  })
+      orderBy: { name: "asc" },
+    }),
+    prisma.appointment.findMany({
+      where: {
+        status: {
+          in: [AppointmentStatus.CONFIRMED, AppointmentStatus.IN_PROGRESS],
+        },
+      },
+      include: {
+        serviceTemplate: {
+          include: {
+            productUsages: true,
+          },
+        },
+      },
+    }),
+  ])
 
   const totalStockValue = products.reduce(
     (sum, product) => sum + getProductStockValue(product),
     0
   )
   const lowStock = products.filter((product) => product.stock <= product.minStock)
+  const plannedConsumption = new Map<string, number>()
+
+  for (const appointment of activeAppointments) {
+    for (const usage of appointment.serviceTemplate?.productUsages || []) {
+      plannedConsumption.set(
+        usage.productId,
+        (plannedConsumption.get(usage.productId) || 0) + Math.abs(usage.quantity)
+      )
+    }
+  }
+
+  const projectedLowStock = products
+    .map((product) => {
+      const planned = plannedConsumption.get(product.id) || 0
+      const projected = product.stock - planned
+
+      return {
+        product,
+        planned,
+        projected,
+      }
+    })
+    .filter((item) => item.planned > 0 && item.projected <= item.product.minStock)
+    .sort((a, b) => a.projected - b.projected)
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -280,7 +320,7 @@ export default async function StockPage() {
                 <label className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm font-semibold">
                   <input type="radio" name="type" value="OUT" />
                   <Minus className="h-4 w-4 text-red-300" />
-                  Saida
+                  Saída
                 </label>
               </div>
 
@@ -320,10 +360,39 @@ export default async function StockPage() {
             </div>
           )}
 
+
+          {projectedLowStock.length > 0 && (
+            <div className="rounded-3xl border border-amber-400/20 bg-amber-500/5 p-4">
+              <h2 className="text-lg font-semibold text-amber-100">Stock em risco</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                Produtos que podem ficar abaixo do mínimo ao concluir a agenda ativa.
+              </p>
+              <div className="mt-4 space-y-2">
+                {projectedLowStock.slice(0, 6).map(({ product, planned, projected }) => (
+                  <Link
+                    key={product.id}
+                    href={`/stock/${product.id}`}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-amber-400/10 bg-black/20 p-3 transition hover:bg-amber-500/10"
+                  >
+                    <div>
+                      <p className="font-semibold text-white">{product.name}</p>
+                      <p className="text-xs text-zinc-500">
+                        Previsto: {projected} {product.unit || "un"} · consumo: {planned} {product.unit || "un"}
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-amber-400/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-200">
+                      Comprar
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="overflow-hidden rounded-3xl border border-white/10 bg-[#0B0B0C]">
             <div className="border-b border-white/10 p-4 sm:p-5">
               <h2 className="text-lg font-semibold">Produtos</h2>
-              <p className="text-sm text-zinc-400">Inventario atual</p>
+              <p className="text-sm text-zinc-400">Inventário atual</p>
             </div>
             <div className="divide-y divide-white/10">
               {products.length === 0 ? (

@@ -1,31 +1,25 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
-import { CalendarDays, Download, Euro, ListChecks, User, WalletCards } from "lucide-react"
+import { CalendarDays, CheckCircle, Download, Euro, ListChecks, User, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { payWorkerAccount, roundMoney } from "@/lib/finance"
+import { accountLabel, payWorkerAccount, roundMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
+
+type FinancePageProps = {
+  searchParams?: Promise<{
+    saved?: string
+  }>
+}
 
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-PT", {
     style: "currency",
     currency: "EUR",
   }).format(value || 0)
-}
-
-function accountLabel(account: WorkerAccount) {
-  switch (account) {
-    case "JOAO":
-      return "Sérgio"
-    case "ADRIANA":
-      return "Adriana"
-    case "FAMADETAIL":
-      return "FamaDetail"
-    default:
-      return account
-  }
 }
 
 async function payAccount(formData: FormData) {
@@ -52,9 +46,12 @@ async function payAccount(formData: FormData) {
   revalidatePath(`/financeiro/${account}`)
   revalidatePath("/dashboard")
   revalidatePath("/agenda")
+
+  redirect("/financeiro?saved=payment")
 }
 
-export default async function FinancePage() {
+export default async function FinancePage({ searchParams }: FinancePageProps) {
+  const params = await searchParams
   const [splits, paymentMovements] = await Promise.all([
     prisma.financialSplit.findMany({
       where: {
@@ -153,7 +150,7 @@ export default async function FinancePage() {
             Contas dos serviços
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Controla a divisao entre Sérgio, Adriana e FamaDetail.
+            Controla a divisão entre Sérgio, Adriana e FamaDetail.
           </p>
         </div>
 
@@ -172,11 +169,27 @@ export default async function FinancePage() {
             <ListChecks className="h-4 w-4" />
             Movimentos pagos
           </Link>
+          <Link
+            href="/financeiro/acertos"
+            className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
+          >
+            <WalletCards className="h-4 w-4" />
+            Acertos
+          </Link>
           <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
             {formatMoney(totalToReceive)} a receber
           </div>
         </div>
       </div>
+
+      {params?.saved && (
+        <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-emerald-300" />
+            <p className="font-semibold">Pagamento guardado e valores atualizados.</p>
+          </div>
+        </div>
+      )}
 
       <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {summaryCards.map((card) => {

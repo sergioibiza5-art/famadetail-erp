@@ -1,8 +1,8 @@
 import Link from "next/link"
-import { notFound } from "next/navigation"
+import { notFound, redirect } from "next/navigation"
 import { revalidatePath } from "next/cache"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
-import { ArrowLeft, CalendarDays, Download, Euro, User, WalletCards } from "lucide-react"
+import { ArrowLeft, CalendarDays, CheckCircle, Download, Euro, User, WalletCards } from "lucide-react"
 import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
@@ -21,6 +21,7 @@ export const dynamic = "force-dynamic"
 
 type Props = {
   params: Promise<{ account: string }>
+  searchParams?: Promise<{ saved?: string }>
 }
 
 function formatDate(value: Date) {
@@ -54,9 +55,12 @@ async function payAccount(formData: FormData) {
   revalidatePath("/financeiro/movimentos")
   revalidatePath("/dashboard")
   revalidatePath("/agenda")
+
+  redirect(`/financeiro/${account}?saved=payment`)
 }
 
-export default async function FinanceAccountPage({ params }: Props) {
+export default async function FinanceAccountPage({ params, searchParams }: Props) {
+  const query = await searchParams
   const { account: accountParam } = await params
   const account = accountParam.toUpperCase() as WorkerAccount
 
@@ -156,6 +160,15 @@ export default async function FinanceAccountPage({ params }: Props) {
         </div>
       </div>
 
+      {query?.saved && (
+        <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          <div className="flex items-center gap-3">
+            <CheckCircle className="h-5 w-5 text-emerald-300" />
+            <p className="font-semibold">Pagamento guardado e conta atualizada.</p>
+          </div>
+        </div>
+      )}
+
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           {
@@ -249,7 +262,7 @@ export default async function FinanceAccountPage({ params }: Props) {
           Nota
           <input
             name="notes"
-            placeholder="Ex: transferência semanal"
+            placeholder="Ex: transfer?ncia semanal"
             className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
           />
         </label>
@@ -280,7 +293,7 @@ export default async function FinanceAccountPage({ params }: Props) {
           <div className="border-b border-white/10 p-4 sm:p-5">
             <h2 className="text-lg font-semibold">Pagamentos registados</h2>
             <p className="text-sm text-zinc-400">
-              Histórico dos últimos pagamentos desta conta.
+              Histórico dos ?ltimos pagamentos desta conta.
             </p>
           </div>
           <div className="divide-y divide-white/10">

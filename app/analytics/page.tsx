@@ -109,7 +109,7 @@ function BarRow({ label, value, percent, detail }: BarRowProps) {
 export default async function AnalyticsPage() {
   const monthStart = getStartOfMonth()
 
-  const [appointments, customers, vehicles, products, expenses] =
+  const [appointments, customers, vehicles, products, expenses, paymentMovements, financialSplits] =
     await Promise.all([
       prisma.appointment.findMany({
         include: {
@@ -133,6 +133,16 @@ export default async function AnalyticsPage() {
           createdAt: "desc",
         },
       }),
+      prisma.paymentMovement.findMany({
+        orderBy: {
+          paidAt: "desc",
+        },
+      }),
+      prisma.financialSplit.findMany({
+        select: {
+          amount: true,
+        },
+      }),
     ])
 
   const completedAppointments = appointments.filter(
@@ -152,23 +162,20 @@ export default async function AnalyticsPage() {
     (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
     0
   )
-  const paidRevenue = paidAppointments.reduce(
-    (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
-    0
-  )
-  const unpaidRevenue = unpaidCompletedAppointments.reduce(
-    (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
-    0
-  )
-  const monthPaidRevenue = paidAppointments
-    .filter((appointment) => appointment.date >= monthStart)
-    .reduce(
-      (sum, appointment) => sum + (appointment.serviceTemplate?.price || 0),
-      0
-    )
+  const totalGeneratedFinance = financialSplits.reduce((sum, split) => sum + split.amount, 0)
+  const paidRevenue = paymentMovements.reduce((sum, movement) => sum + movement.amount, 0)
+  const unpaidRevenue = Math.max(0, totalGeneratedFinance - paidRevenue)
+  const monthPaidRevenue = paymentMovements
+    .filter((movement) => movement.paidAt >= monthStart)
+    .reduce((sum, movement) => sum + movement.amount, 0)
   const monthExpenses = expenses
     .filter((expense) => expense.createdAt >= monthStart)
     .reduce((sum, expense) => sum + expense.amount, 0)
+  const monthGeneratedRevenue = completedAppointments
+    .filter((appointment) => appointment.date >= monthStart)
+    .reduce((sum, appointment) => sum + (appointment.serviceTemplate?.price || 0), 0)
+  const monthProfitEstimate = monthPaidRevenue - monthExpenses
+
   const stockValue = products.reduce(
     (sum, product) => sum + getProductStockValue(product),
     0
@@ -296,7 +303,7 @@ export default async function AnalyticsPage() {
     {
       label: "Por receber",
       value: formatMoney(unpaidRevenue),
-      detail: `${unpaidCompletedAppointments.length} serviço(s) concluído(s)`,
+      detail: `${unpaidCompletedAppointments.length} serviço(s) conclu?do(s)`,
       icon: CreditCard,
     },
     {
@@ -338,7 +345,7 @@ export default async function AnalyticsPage() {
           ? completedRevenue / completedAppointments.length
           : 0
       ),
-      detail: "Média por serviço concluído",
+      detail: "Média por serviço conclu?do",
       icon: Activity,
     },
   ]
@@ -383,6 +390,35 @@ export default async function AnalyticsPage() {
             </div>
           )
         })}
+      </div>
+
+
+      <div className="mt-6 rounded-3xl border border-white/10 bg-[#0B0B0C] p-5">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
+            <Euro className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold">Resumo mensal</h2>
+            <p className="text-sm text-zinc-400">
+              Gerado, recebido, despesas e lucro estimado deste mês.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: "Gerado", value: formatMoney(monthGeneratedRevenue) },
+            { label: "Recebido", value: formatMoney(monthPaidRevenue) },
+            { label: "Despesas", value: formatMoney(monthExpenses) },
+            { label: "Lucro estimado", value: formatMoney(monthProfitEstimate) },
+          ].map((item) => (
+            <div key={item.label} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-sm text-zinc-400">{item.label}</p>
+              <p className="mt-2 text-2xl font-bold text-white">{item.value}</p>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
@@ -491,7 +527,7 @@ export default async function AnalyticsPage() {
         <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-5">
           <h2 className="text-lg font-semibold">Top clientes</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Clientes com maior valor concluído
+            Clientes com maior valor conclu?do
           </p>
 
           <div className="mt-5 space-y-5">
@@ -535,7 +571,7 @@ export default async function AnalyticsPage() {
               {formatMoney(unpaidRevenue)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              {unpaidCompletedAppointments.length} serviço(s) concluído(s) sem
+              {unpaidCompletedAppointments.length} serviço(s) conclu?do(s) sem
               pagamento
             </p>
           </Link>

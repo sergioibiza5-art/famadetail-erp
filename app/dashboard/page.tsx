@@ -6,6 +6,7 @@ import {
   Car,
   CheckCircle,
   Euro,
+  ListChecks,
   Package,
   Users,
   Wrench,
@@ -132,6 +133,8 @@ export default async function DashboardPage() {
     completedAppointments,
     completedMetrics,
     productsForStockCheck,
+    financeSplits,
+    paymentMovements,
   ] = await Promise.all([
     prisma.customer.count(),
     prisma.vehicle.count(),
@@ -204,6 +207,16 @@ export default async function DashboardPage() {
         name: "asc",
       },
     }),
+    prisma.financialSplit.findMany({
+      select: {
+        amount: true,
+      },
+    }),
+    prisma.paymentMovement.findMany({
+      select: {
+        amount: true,
+      },
+    }),
   ])
 
   const customerRequestIds = new Set(customerRequests.map((appointment) => appointment.id))
@@ -224,18 +237,16 @@ export default async function DashboardPage() {
       return bMissing - aMissing
     })
 
-  const paidRevenue = completedMetrics.reduce(
-    (sum, appointment) =>
-      appointment.isPaid ? sum + (appointment.serviceTemplate?.price || 0) : sum,
+  const totalGeneratedFinance = financeSplits.reduce(
+    (sum, split) => sum + split.amount,
     0
   )
-  const unpaidRevenue = completedMetrics.reduce(
-    (sum, appointment) =>
-      !appointment.isPaid
-        ? sum + (appointment.serviceTemplate?.price || 0)
-        : sum,
+  const paidRevenue = paymentMovements.reduce(
+    (sum, movement) => sum + movement.amount,
     0
   )
+  const unpaidRevenue = Math.max(0, totalGeneratedFinance - paidRevenue)
+  const financeCredit = Math.max(0, paidRevenue - totalGeneratedFinance)
 
   const cards = [
     {
@@ -265,7 +276,10 @@ export default async function DashboardPage() {
     {
       label: "Pago",
       value: formatMoney(paidRevenue),
-      detail: `${formatMoney(unpaidRevenue)} por receber`,
+      detail:
+        financeCredit > 0
+          ? `${formatMoney(financeCredit)} em saldo`
+          : `${formatMoney(unpaidRevenue)} por receber`,
       icon: Euro,
     },
   ]
@@ -322,6 +336,55 @@ export default async function DashboardPage() {
 
               <h2 className="text-2xl font-bold text-white">{card.value}</h2>
             </div>
+          )
+        })}
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            href: "/agenda",
+            title: "Abrir agenda",
+            detail: `${activeAppointmentGroups.length} em aberto`,
+            icon: CalendarDays,
+          },
+          {
+            href: "/marcar",
+            title: "P?gina p?blica",
+            detail: "Simular pedido de marcação",
+            icon: Users,
+          },
+          {
+            href: "/financeiro/movimentos",
+            title: "Movimentos pagos",
+            detail: "Ver extrato financeiro",
+            icon: ListChecks,
+          },
+          {
+            href: "/stock/compras",
+            title: "Lista de compras",
+            detail: `${lowStockProducts.length} produto(s) em falta`,
+            icon: Package,
+          },
+        ].map((action) => {
+          const Icon = action.icon
+
+          return (
+            <Link
+              key={action.href}
+              href={action.href}
+              className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition hover:border-red-300/30 hover:bg-red-500/10"
+            >
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-red-500/10 p-3 text-red-300">
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="font-semibold text-white">{action.title}</p>
+                  <p className="mt-1 text-xs text-zinc-500">{action.detail}</p>
+                </div>
+              </div>
+            </Link>
           )
         })}
       </div>
@@ -443,7 +506,7 @@ export default async function DashboardPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0C]">
           <div className="border-b border-white/10 p-4 sm:p-5">
-            <h2 className="text-lg font-semibold">Últimos concluídos</h2>
+            <h2 className="text-lg font-semibold">?ltimos conclu?dos</h2>
 
             <p className="text-sm text-zinc-400">
               Agendamentos terminados mais recentes
@@ -453,7 +516,7 @@ export default async function DashboardPage() {
           <div className="divide-y divide-white/10">
             {completedAppointmentGroups.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
-                Nenhuma marcação concluída.
+                Nenhuma marca??o conclu?da.
               </div>
             ) : (
               completedAppointmentGroups.map((appointment) => (
