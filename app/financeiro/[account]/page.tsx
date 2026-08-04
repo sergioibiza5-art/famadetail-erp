@@ -293,7 +293,7 @@ export default async function FinanceAccountPage({ params, searchParams }: Props
           <div className="border-b border-white/10 p-4 sm:p-5">
             <h2 className="text-lg font-semibold">Pagamentos registados</h2>
             <p className="text-sm text-zinc-400">
-              Histórico dos ?ltimos pagamentos desta conta.
+              Histórico dos últimos pagamentos desta conta.
             </p>
           </div>
           <div className="divide-y divide-white/10">

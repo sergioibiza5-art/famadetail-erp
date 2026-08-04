@@ -350,7 +350,7 @@ export default async function DashboardPage() {
           },
           {
             href: "/marcar",
-            title: "P?gina p?blica",
+            title: "Página pública",
             detail: "Simular pedido de marcação",
             icon: Users,
           },
@@ -506,7 +506,7 @@ export default async function DashboardPage() {
 
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#0B0B0C]">
           <div className="border-b border-white/10 p-4 sm:p-5">
-            <h2 className="text-lg font-semibold">?ltimos conclu?dos</h2>
+            <h2 className="text-lg font-semibold">Últimos concluídos</h2>
 
             <p className="text-sm text-zinc-400">
               Agendamentos terminados mais recentes
@@ -516,7 +516,7 @@ export default async function DashboardPage() {
           <div className="divide-y divide-white/10">
             {completedAppointmentGroups.length === 0 ? (
               <div className="p-8 text-center text-sm text-zinc-400">
-                Nenhuma marca??o conclu?da.
+                Nenhuma marcação concluída.
               </div>
             ) : (
               completedAppointmentGroups.map((appointment) => (

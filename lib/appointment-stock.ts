@@ -90,7 +90,7 @@ async function revertAppointmentStockConsumption(
         appointmentId,
         serviceTemplateId: movement.serviceTemplateId,
         quantity: quantityToRestore,
-        notes: `Reposicao automatica: ${appointment.title}`,
+        notes: `Reposição automática: ${appointment.title}`,
       },
     })
 
@@ -150,7 +150,7 @@ async function applyAppointmentStockConsumption(
         appointmentId,
         serviceTemplateId: appointment.serviceTemplateId,
         quantity: -quantity,
-        notes: `Consumo automatico: ${appointment.title}`,
+        notes: `Consumo automático: ${appointment.title}`,
       },
     })
 

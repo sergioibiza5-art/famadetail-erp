@@ -346,7 +346,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
             Agenda
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Marca??es
+            Marcações
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
             Agendamentos agrupados por OS. Abre um agendamento para ver os serviços.
@@ -471,7 +471,7 @@ export default async function AgendaPage({ searchParams }: AgendaPageProps) {
           </div>
 
           <AppointmentList
-            title="Marca??es ativas"
+            title="Marcações ativas"
             subtitle="Agendamentos ativos, agrupados por OS"
             groups={activeAppointmentGroups}
           />

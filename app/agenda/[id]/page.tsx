@@ -293,7 +293,16 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     const status = String(formData.get("status") || "") as AppointmentStatus
     if (!Object.values(AppointmentStatus).includes(status)) return
 
-    await updateAppointmentStatusWithStock(id, status)
+    const targets = appointmentGroupId
+      ? await prisma.appointment.findMany({
+          where: { groupId: appointmentGroupId },
+          select: { id: true },
+        })
+      : [{ id }]
+
+    for (const target of targets) {
+      await updateAppointmentStatusWithStock(target.id, status)
+    }
 
     revalidatePath("/agenda")
     revalidatePath(`/agenda/${id}`)
@@ -543,6 +552,26 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     revalidatePath(`/agenda/${id}`)
     revalidatePath("/dashboard")
     revalidatePath("/financeiro")
+    revalidatePath("/analytics")
+  }
+
+  async function updateAppointmentServiceStatus(formData: FormData) {
+    "use server"
+
+    await requireAdmin()
+
+    const appointmentId = String(formData.get("appointmentId") || "")
+    const status = String(formData.get("status") || "") as AppointmentStatus
+
+    if (!appointmentId || !Object.values(AppointmentStatus).includes(status)) return
+
+    await updateAppointmentStatusWithStock(appointmentId, status)
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/marcar")
+    revalidatePath("/stock")
     revalidatePath("/analytics")
   }
 
@@ -851,7 +880,10 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
             action={updateStatus}
             className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-4 sm:p-5"
           >
-            <h2 className="mb-4 text-lg font-semibold">Estado do serviço</h2>
+            <h2 className="mb-1 text-lg font-semibold">Estado geral</h2>
+            <p className="mb-4 text-sm text-zinc-400">
+              Usa a lista de serviços para alterar cada serviço individualmente.
+            </p>
             <div className="space-y-2">
               {Object.values(AppointmentStatus).map((status) => (
                 <button
@@ -1145,7 +1177,7 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
               {groupedAppointments.map((item, index) => (
                 <div
                   key={item.id}
-                  className="grid gap-3 p-4 xl:grid-cols-[minmax(260px,1fr)_90px_90px_100px_minmax(430px,520px)]"
+                  className="grid gap-3 p-4 xl:grid-cols-[minmax(260px,1fr)_90px_90px_minmax(250px,300px)_minmax(430px,520px)]"
                 >
                   <div className="flex items-start gap-3">
                     <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-red-500/10 text-sm font-black text-red-200">
@@ -1173,7 +1205,23 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-wider text-zinc-500">Estado</p>
-                    <p className="mt-1 font-semibold">{statusLabel(item.status)}</p>
+                    <form action={updateAppointmentServiceStatus} className="mt-1 flex gap-2">
+                      <input type="hidden" name="appointmentId" value={item.id} />
+                      <select
+                        name="status"
+                        defaultValue={item.status}
+                        className="min-h-10 min-w-0 flex-1 rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-white outline-none focus:border-red-300/60"
+                      >
+                        {Object.values(AppointmentStatus).map((status) => (
+                          <option key={status} value={status}>
+                            {statusLabel(status)}
+                          </option>
+                        ))}
+                      </select>
+                      <button className="rounded-2xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-zinc-200 transition hover:bg-white/10">
+                        Estado
+                      </button>
+                    </form>
                   </div>
                   <div className="flex min-w-0 flex-col gap-2 sm:flex-row xl:min-w-[430px] xl:justify-end">
                     <form action={updateAppointmentService} className="flex min-w-0 flex-1 gap-2">

@@ -303,7 +303,7 @@ export default async function AnalyticsPage() {
     {
       label: "Por receber",
       value: formatMoney(unpaidRevenue),
-      detail: `${unpaidCompletedAppointments.length} serviço(s) conclu?do(s)`,
+      detail: `${unpaidCompletedAppointments.length} serviço(s) concluído(s)`,
       icon: CreditCard,
     },
     {
@@ -345,7 +345,7 @@ export default async function AnalyticsPage() {
           ? completedRevenue / completedAppointments.length
           : 0
       ),
-      detail: "Média por serviço conclu?do",
+      detail: "Média por serviço concluído",
       icon: Activity,
     },
   ]
@@ -527,7 +527,7 @@ export default async function AnalyticsPage() {
         <div className="rounded-3xl border border-white/10 bg-[#0B0B0C] p-5">
           <h2 className="text-lg font-semibold">Top clientes</h2>
           <p className="mt-1 text-sm text-zinc-400">
-            Clientes com maior valor conclu?do
+            Clientes com maior valor concluído
           </p>
 
           <div className="mt-5 space-y-5">
@@ -571,7 +571,7 @@ export default async function AnalyticsPage() {
               {formatMoney(unpaidRevenue)}
             </p>
             <p className="mt-1 text-xs text-zinc-500">
-              {unpaidCompletedAppointments.length} serviço(s) conclu?do(s) sem
+              {unpaidCompletedAppointments.length} serviço(s) concluído(s) sem
               pagamento
             </p>
           </Link>
