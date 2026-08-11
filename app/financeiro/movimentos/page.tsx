@@ -1,13 +1,17 @@
 import Link from "next/link"
+import { redirect } from "next/navigation"
+import { revalidatePath } from "next/cache"
 import type { ReactNode } from "react"
 import { ArrowLeft, CalendarDays, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
 import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
   formatMoney,
   getPaidAmount,
   missingMoney,
+  redistributeAccountCredit,
   roundMoney,
 } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
@@ -15,7 +19,7 @@ import { prisma } from "@/lib/prisma"
 export const dynamic = "force-dynamic"
 
 type Props = {
-  searchParams?: Promise<{ account?: string }>
+  searchParams?: Promise<{ account?: string; saved?: string }>
 }
 
 function formatDate(value: Date) {
@@ -31,11 +35,111 @@ function methodLabel(method: PaymentMethod | null) {
   return "Sem método"
 }
 
+async function revalidateFinanceViews(account?: WorkerAccount | null) {
+  revalidatePath("/financeiro")
+  revalidatePath("/financeiro/movimentos")
+  revalidatePath("/financeiro/acertos")
+  revalidatePath("/dashboard")
+  revalidatePath("/analytics")
+  revalidatePath("/agenda")
+
+  if (account) {
+    revalidatePath(`/financeiro/${account}`)
+  }
+}
+
+async function movePaymentMovement(formData: FormData) {
+  "use server"
+
+  await requireAdmin()
+
+  const movementId = String(formData.get("movementId") || "")
+  const targetAccount = String(formData.get("targetAccount") || "") as WorkerAccount
+  const note = String(formData.get("correctionNote") || "").trim()
+
+  if (!movementId || !Object.values(WorkerAccount).includes(targetAccount)) return
+
+  const movement = await prisma.paymentMovement.findUnique({
+    where: { id: movementId },
+  })
+
+  if (!movement || movement.amount <= 0 || movement.account === targetAccount) return
+
+  const description =
+    note || `Correção: movimento ${movement.id.slice(0, 8)} estava na conta errada`
+
+  await prisma.$transaction([
+    prisma.paymentMovement.create({
+      data: {
+        account: movement.account,
+        amount: -movement.amount,
+        method: movement.method,
+        paidAt: new Date(),
+        notes: `${description} · saída para ${accountLabel(targetAccount)}`,
+      },
+    }),
+    prisma.paymentMovement.create({
+      data: {
+        account: targetAccount,
+        amount: movement.amount,
+        method: movement.method,
+        paidAt: movement.paidAt,
+        notes: `${description} · entrada de ${accountLabel(movement.account)}`,
+      },
+    }),
+  ])
+
+  await Promise.all([
+    redistributeAccountCredit(movement.account),
+    redistributeAccountCredit(targetAccount),
+  ])
+
+  await revalidateFinanceViews(movement.account)
+  await revalidateFinanceViews(targetAccount)
+
+  redirect(`/financeiro/movimentos?saved=moved&account=${targetAccount}`)
+}
+
+async function voidPaymentMovement(formData: FormData) {
+  "use server"
+
+  await requireAdmin()
+
+  const movementId = String(formData.get("movementId") || "")
+  const note = String(formData.get("correctionNote") || "").trim()
+
+  if (!movementId) return
+
+  const movement = await prisma.paymentMovement.findUnique({
+    where: { id: movementId },
+  })
+
+  if (!movement || movement.amount <= 0) return
+
+  await prisma.paymentMovement.create({
+    data: {
+      account: movement.account,
+      amount: -movement.amount,
+      method: movement.method,
+      paidAt: new Date(),
+      notes:
+        note ||
+        `Anulação: movimento ${movement.id.slice(0, 8)} lançado por engano`,
+    },
+  })
+
+  await redistributeAccountCredit(movement.account)
+  await revalidateFinanceViews(movement.account)
+
+  redirect(`/financeiro/movimentos?saved=voided&account=${movement.account}`)
+}
+
 export default async function PaymentMovementsPage({ searchParams }: Props) {
   await requireAdmin()
 
   const params = await searchParams
   const accountParam = String(params?.account || "").toUpperCase()
+  const saved = String(params?.saved || "")
   const account = Object.values(WorkerAccount).includes(accountParam as WorkerAccount)
     ? (accountParam as WorkerAccount)
     : null
@@ -150,6 +254,19 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
         ))}
       </div>
 
+      {saved && (
+        <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
+          <p className="font-semibold">
+            {saved === "moved"
+              ? "Movimento corrigido e transferido para a conta certa."
+              : "Movimento anulado com registo de correção."}
+          </p>
+          <p className="mt-1 text-emerald-100/75">
+            Os saldos foram recalculados sem apagar o histórico original.
+          </p>
+        </div>
+      )}
+
       <div className="mb-4 overflow-hidden rounded-3xl border border-amber-400/20 bg-amber-500/5">
         <div className="border-b border-amber-400/20 p-4 sm:p-5">
           <h2 className="text-lg font-semibold">Valores por pagar às contas</h2>
@@ -254,6 +371,70 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
                     {formatMoney(movement.amount)}
                   </p>
                 </div>
+
+                {movement.amount > 0 && (
+                  <div className="grid gap-3 border-b border-white/10 bg-white/[0.02] p-4 lg:grid-cols-[1fr_1fr]">
+                    <form
+                      action={movePaymentMovement}
+                      className="grid gap-2 rounded-2xl border border-white/10 bg-black/20 p-3 sm:grid-cols-[1fr_160px_auto] sm:items-end"
+                    >
+                      <input type="hidden" name="movementId" value={movement.id} />
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Nota da correção
+                        <input
+                          name="correctionNote"
+                          placeholder="Ex: pagamento era da FamaDetail"
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+                        />
+                      </label>
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Mover para
+                        <select
+                          name="targetAccount"
+                          defaultValue=""
+                          required
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                        >
+                          <option value="">Escolher conta</option>
+                          {Object.values(WorkerAccount)
+                            .filter((item) => item !== movement.account)
+                            .map((item) => (
+                              <option key={item} value={item}>
+                                {accountLabel(item)}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <ConfirmSubmitButton
+                        message="Confirmas mover este pagamento para outra conta? O movimento original fica registado e serão criados movimentos de correção."
+                        className="min-h-10 rounded-xl border border-sky-400/20 bg-sky-500/10 px-3 py-2 text-xs font-black text-sky-100 transition hover:bg-sky-500/20"
+                      >
+                        Mover
+                      </ConfirmSubmitButton>
+                    </form>
+
+                    <form
+                      action={voidPaymentMovement}
+                      className="grid gap-2 rounded-2xl border border-red-400/20 bg-red-500/5 p-3 sm:grid-cols-[1fr_auto] sm:items-end"
+                    >
+                      <input type="hidden" name="movementId" value={movement.id} />
+                      <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                        Motivo da anulação
+                        <input
+                          name="correctionNote"
+                          placeholder="Ex: movimento duplicado"
+                          className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
+                        />
+                      </label>
+                      <ConfirmSubmitButton
+                        message="Confirmas anular este movimento? Será criado um movimento negativo e nada será apagado."
+                        className="min-h-10 rounded-xl border border-red-400/20 bg-red-500/10 px-3 py-2 text-xs font-black text-red-100 transition hover:bg-red-500/20"
+                      >
+                        Anular
+                      </ConfirmSubmitButton>
+                    </form>
+                  </div>
+                )}
 
                 <div className="divide-y divide-white/10">
                   {movement.allocations.length === 0 && unallocatedAmount <= 0 ? (

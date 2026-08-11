@@ -105,12 +105,13 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
 
   const completedServiceIds = new Set(splits.map((split) => split.appointmentId))
   const totalGenerated = splits.reduce((sum, split) => roundMoney(sum + split.amount), 0)
-  const totalReceived = paymentMovements.reduce(
+  const totalPaidToAccounts = paymentMovements.reduce(
     (sum, movement) => roundMoney(sum + movement.amount),
     0
   )
-  const totalToReceive = roundMoney(Math.max(0, totalGenerated - totalReceived))
-  const totalCredit = roundMoney(Math.max(0, totalReceived - totalGenerated))
+  const totalPending = totals.reduce((sum, item) => roundMoney(sum + item.pending), 0)
+  const totalCredit = totals.reduce((sum, item) => roundMoney(sum + item.credit), 0)
+  const netBalance = roundMoney(Math.max(0, totalPending - totalCredit))
 
   const summaryCards = [
     {
@@ -126,15 +127,24 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
       icon: Euro,
     },
     {
-      label: "Recebido",
-      value: formatMoney(totalReceived),
+      label: "Pago às contas",
+      value: formatMoney(totalPaidToAccounts),
       detail: "Pagamentos registados",
       icon: WalletCards,
     },
     {
-      label: "A receber",
-      value: formatMoney(totalToReceive),
-      detail: totalCredit > 0 ? `${formatMoney(totalCredit)} em saldo` : "Sem saldo extra",
+      label: "Por pagar",
+      value: formatMoney(totalPending),
+      detail:
+        totalCredit > 0
+          ? `${formatMoney(totalCredit)} em saldo a favor`
+          : "Sem saldos a favor",
+      icon: Euro,
+    },
+    {
+      label: "Saldo líquido",
+      value: formatMoney(netBalance),
+      detail: "Por pagar depois dos saldos",
       icon: Euro,
     },
   ]
@@ -167,7 +177,7 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
             className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold transition hover:bg-white/10"
           >
             <ListChecks className="h-4 w-4" />
-            Movimentos pagos
+            Movimentos
           </Link>
           <Link
             href="/financeiro/acertos"
@@ -177,10 +187,22 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
             Acertos
           </Link>
           <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-            {formatMoney(totalToReceive)} a receber
+            {formatMoney(totalPending)} por pagar
           </div>
         </div>
       </div>
+
+      {totalCredit > 0 && (
+        <div className="mb-4 rounded-3xl border border-sky-400/20 bg-sky-500/10 p-4 text-sm text-sky-100">
+          <p className="font-semibold">Leitura das contas</p>
+          <p className="mt-1 text-sky-100/80">
+            Há {formatMoney(totalPending)} por pagar às contas e{" "}
+            {formatMoney(totalCredit)} em saldos a favor. O saldo líquido é{" "}
+            {formatMoney(netBalance)}, mas os cartões por conta mostram sempre a
+            dívida real de cada conta em separado.
+          </p>
+        </div>
+      )}
 
       {params?.saved && (
         <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
@@ -191,7 +213,7 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
         </div>
       )}
 
-      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="mb-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         {summaryCards.map((card) => {
           const Icon = card.icon
 
