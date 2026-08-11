@@ -262,7 +262,7 @@ export default async function FinanceAccountPage({ params, searchParams }: Props
           Nota
           <input
             name="notes"
-            placeholder="Ex: transfer?ncia semanal"
+            placeholder="Ex: transferência semanal"
             className="mt-2 w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none placeholder:text-zinc-600 focus:border-red-300/60"
           />
         </label>

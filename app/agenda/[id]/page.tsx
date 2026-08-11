@@ -27,6 +27,7 @@ import {
   getPaidAmount,
   isMoneyPaid,
   missingMoney,
+  calculateFinancialSplitAmounts,
   redistributeAccountCredit,
   roundMoney,
 } from "@/lib/finance"
@@ -142,6 +143,7 @@ async function upsertAppointmentFinance(
   const workerAccounts = percentages
     .filter((item) => item.account !== WorkerAccount.FAMADETAIL && item.percentage > 0)
     .map((item) => item.account)
+  const splitAmounts = calculateFinancialSplitAmounts(price, percentages)
 
   await prisma.$transaction([
     prisma.appointmentWorker.deleteMany({ where: { appointmentId } }),
@@ -153,9 +155,8 @@ async function upsertAppointmentFinance(
         },
       })
     ),
-    ...percentages.map(({ account, percentage }) => {
+    ...splitAmounts.map(({ account, percentage, amount }) => {
       const existing = existingSplits.find((split) => split.account === account)
-      const amount = roundMoney((price * percentage) / 100)
       const paidAmount = existing ? getSplitPaidAmount(existing) : 0
 
       return prisma.financialSplit.upsert({
@@ -388,6 +389,7 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     await prisma.$transaction(
       targetAppointments.flatMap((item) => {
         const price = item.serviceTemplate?.price || 0
+        const splitAmounts = calculateFinancialSplitAmounts(price, percentages)
 
         return [
           prisma.appointmentWorker.deleteMany({
@@ -408,11 +410,10 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
               },
             })
           ),
-          ...percentages.map(({ account, percentage }) => {
+          ...splitAmounts.map(({ account, percentage, amount }) => {
             const existing = item.financialSplits.find(
               (split) => split.account === account
             )
-            const amount = roundMoney((price * percentage) / 100)
             const paidAmount = existing ? getSplitPaidAmount(existing) : 0
 
             return prisma.financialSplit.upsert({

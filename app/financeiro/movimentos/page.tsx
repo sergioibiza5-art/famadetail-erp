@@ -3,7 +3,13 @@ import type { ReactNode } from "react"
 import { ArrowLeft, CalendarDays, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { accountLabel, formatMoney, roundMoney } from "@/lib/finance"
+import {
+  accountLabel,
+  formatMoney,
+  getPaidAmount,
+  missingMoney,
+  roundMoney,
+} from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -34,30 +40,67 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
     ? (accountParam as WorkerAccount)
     : null
 
-  const movements = await prisma.paymentMovement.findMany({
-    where: account ? { account } : undefined,
-    include: {
-      allocations: {
-        include: {
-          financialSplit: {
-            include: {
-              appointment: {
-                include: {
-                  customer: true,
-                  vehicle: true,
-                  serviceTemplate: true,
+  const [movements, splits] = await Promise.all([
+    prisma.paymentMovement.findMany({
+      where: account ? { account } : undefined,
+      include: {
+        allocations: {
+          include: {
+            financialSplit: {
+              include: {
+                appointment: {
+                  include: {
+                    customer: true,
+                    vehicle: true,
+                    serviceTemplate: true,
+                  },
                 },
               },
             },
           },
+          orderBy: { createdAt: "asc" },
         },
-        orderBy: { createdAt: "asc" },
       },
-    },
-    orderBy: { paidAt: "desc" },
-  })
+      orderBy: { paidAt: "desc" },
+    }),
+    prisma.financialSplit.findMany({
+      where: account ? { account, amount: { gt: 0 } } : { amount: { gt: 0 } },
+      include: {
+        appointment: {
+          include: {
+            customer: true,
+            vehicle: true,
+            serviceTemplate: true,
+          },
+        },
+      },
+      orderBy: {
+        appointment: {
+          date: "desc",
+        },
+      },
+    }),
+  ])
 
-  const total = movements.reduce((sum, movement) => roundMoney(sum + movement.amount), 0)
+  const totalPaid = movements.reduce(
+    (sum, movement) => roundMoney(sum + movement.amount),
+    0
+  )
+  const pendingSplits = splits
+    .map((split) => {
+      const paid = getPaidAmount(split)
+
+      return {
+        ...split,
+        paid,
+        missing: missingMoney(split.amount, paid),
+      }
+    })
+    .filter((split) => split.missing > 0)
+  const pendingTotal = pendingSplits.reduce(
+    (sum, split) => roundMoney(sum + split.missing),
+    0
+  )
 
   return (
     <section className="px-3 py-4 sm:px-4 lg:p-8">
@@ -75,15 +118,20 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
             Financeiro
           </p>
           <h1 className="mt-2 text-2xl font-bold text-white sm:text-3xl">
-            Movimentos pagos
+            Movimentos e valores por pagar
           </h1>
           <p className="mt-2 text-sm text-zinc-400">
-            Extrato do que foi pago a cada conta e a que ordem de serviço diz respeito.
+            O extrato separa pagamentos às contas dos valores que ainda faltam pagar.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
-          {formatMoney(total)} pago
+        <div className="flex flex-wrap gap-2">
+          <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm font-semibold">
+            {formatMoney(totalPaid)} pago
+          </div>
+          <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-100">
+            {formatMoney(pendingTotal)} por pagar
+          </div>
         </div>
       </div>
 
@@ -100,6 +148,75 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
             {accountLabel(item)}
           </FilterLink>
         ))}
+      </div>
+
+      <div className="mb-4 overflow-hidden rounded-3xl border border-amber-400/20 bg-amber-500/5">
+        <div className="border-b border-amber-400/20 p-4 sm:p-5">
+          <h2 className="text-lg font-semibold">Valores por pagar às contas</h2>
+          <p className="text-sm text-zinc-400">
+            Serviços que ainda não têm a parcela totalmente paga à conta selecionada.
+          </p>
+        </div>
+
+        <div className="divide-y divide-amber-400/10">
+          {pendingSplits.length === 0 ? (
+            <div className="p-6 text-center text-sm text-zinc-500">
+              Não há valores em falta para este filtro.
+            </div>
+          ) : (
+            pendingSplits.map((split) => {
+              const appointment = split.appointment
+
+              return (
+                <Link
+                  key={split.id}
+                  href={`/agenda/${appointment.id}`}
+                  className="grid gap-3 p-4 transition hover:bg-white/[0.03] lg:grid-cols-[140px_150px_1fr_130px_130px] lg:items-center"
+                >
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">
+                      Conta
+                    </p>
+                    <p className="mt-1 font-semibold text-white">
+                      {accountLabel(split.account)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-wider text-zinc-500">
+                      Ordem
+                    </p>
+                    <p className="mt-1 font-semibold text-white">
+                      {appointment.orderNumber || "Sem OS"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-white">
+                      {appointment.serviceTemplate?.name || appointment.title}
+                    </p>
+                    <p className="mt-1 text-sm text-zinc-400">
+                      {appointment.customer.name} · {appointment.vehicle.plate}
+                    </p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Cliente: {appointment.isPaid ? "pago" : "por pagar"}
+                    </p>
+                  </div>
+                  <div className="text-sm">
+                    <p className="text-zinc-500">Pago à conta</p>
+                    <p className="font-semibold text-emerald-300">
+                      {formatMoney(split.paid)}
+                    </p>
+                  </div>
+                  <div className="text-sm">
+                    <p className="text-zinc-500">Falta pagar</p>
+                    <p className="font-semibold text-amber-100">
+                      {formatMoney(split.missing)}
+                    </p>
+                  </div>
+                </Link>
+              )
+            })
+          )}
+        </div>
       </div>
 
       <div className="space-y-4">
@@ -126,7 +243,8 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
                   </div>
                   <div>
                     <p className="font-semibold text-white">
-                      {accountLabel(movement.account)} · {movement.notes || "Pagamento"}
+                      {accountLabel(movement.account)} ·{" "}
+                      {movement.notes || "Pagamento"}
                     </p>
                     <p className="mt-1 text-sm text-zinc-400">
                       {methodLabel(movement.method)} · {formatDate(movement.paidAt)}
@@ -168,6 +286,9 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
                               </p>
                               <p className="mt-1 text-sm text-zinc-400">
                                 {appointment.customer.name} · {appointment.vehicle.plate}
+                              </p>
+                              <p className="mt-1 text-xs text-zinc-500">
+                                Cliente: {appointment.isPaid ? "pago" : "por pagar"}
                               </p>
                             </div>
                             <div className="flex items-center gap-2 text-sm text-zinc-400">

@@ -46,6 +46,28 @@ export function formatMoney(value: number) {
   }).format(value || 0)
 }
 
+export function calculateFinancialSplitAmounts(
+  total: number,
+  percentages: Array<{ account: WorkerAccount; percentage: number }>
+) {
+  const normalizedTotal = roundMoney(total)
+  let allocated = 0
+
+  return percentages.map((item, index) => {
+    const isLast = index === percentages.length - 1
+    const amount = isLast
+      ? roundMoney(normalizedTotal - allocated)
+      : roundMoney((normalizedTotal * item.percentage) / 100)
+
+    allocated = roundMoney(allocated + amount)
+
+    return {
+      ...item,
+      amount,
+    }
+  })
+}
+
 export function getPaymentState(split: {
   paidAmount: number
   isPaid: boolean
@@ -83,16 +105,20 @@ export async function redistributeAccountCredit(account: WorkerAccount) {
     ],
   })
 
-  let remainingPaid = splits.reduce(
-    (sum, split) => roundMoney(sum + getPaidAmount(split)),
+  const movements = await prisma.paymentMovement.findMany({
+    where: { account },
+    select: {
+      amount: true,
+    },
+  })
+
+  let remainingPaid = movements.reduce(
+    (sum, movement) => roundMoney(sum + movement.amount),
     0
   )
 
-  for (const [index, split] of splits.entries()) {
-    const isLastSplit = index === splits.length - 1
-    const nextPaidAmount = roundMoney(
-      isLastSplit ? remainingPaid : Math.min(remainingPaid, split.amount)
-    )
+  for (const split of splits) {
+    const nextPaidAmount = roundMoney(Math.min(remainingPaid, split.amount))
     const nextIsPaid = isMoneyPaid(nextPaidAmount, split.amount)
     remainingPaid = roundMoney(Math.max(0, remainingPaid - nextPaidAmount))
 
@@ -106,6 +132,59 @@ export async function redistributeAccountCredit(account: WorkerAccount) {
           paidAmount: nextPaidAmount,
           isPaid: nextIsPaid,
           paidAt: nextIsPaid && split.amount > 0 ? split.paidAt ?? new Date() : null,
+        },
+      })
+    }
+  }
+}
+
+export async function normalizeAllFinancialSplitAmounts() {
+  const appointments = await prisma.appointment.findMany({
+    include: {
+      serviceTemplate: {
+        select: {
+          price: true,
+        },
+      },
+      financialSplits: true,
+    },
+  })
+
+  for (const appointment of appointments) {
+    if (!appointment.serviceTemplate || appointment.financialSplits.length === 0) {
+      continue
+    }
+
+    const existingSplits = Object.values(WorkerAccount)
+      .map((account) => appointment.financialSplits.find((split) => split.account === account))
+      .filter((split): split is NonNullable<typeof split> => Boolean(split))
+    const percentages = existingSplits.map((split) => ({
+      account: split.account,
+      percentage: split.percentage,
+      id: split.id,
+      paidAmount: getPaidAmount(split),
+    }))
+
+    if (percentages.length === 0) continue
+
+    const splitAmounts = calculateFinancialSplitAmounts(
+      appointment.serviceTemplate.price,
+      percentages
+    )
+
+    for (const [index, split] of splitAmounts.entries()) {
+      const existing = percentages[index]
+      if (!existing) continue
+
+      await prisma.financialSplit.update({
+        where: { id: existing.id },
+        data: {
+          amount: split.amount,
+          isPaid: isMoneyPaid(existing.paidAmount, split.amount),
+          paidAt:
+            isMoneyPaid(existing.paidAmount, split.amount) && split.amount > 0
+              ? new Date()
+              : null,
         },
       })
     }
@@ -208,21 +287,6 @@ export async function payWorkerAccount({
     })
 
     remainingPayment = roundMoney(remainingPayment - amountToApply)
-  }
-
-  if (remainingPayment > 0 && splits.length > 0) {
-    const split = splits[splits.length - 1]
-    const paidAmount = getPaidAmount(split)
-    const nextPaidAmount = roundMoney(paidAmount + remainingPayment)
-
-    await prisma.financialSplit.update({
-      where: { id: split.id },
-      data: {
-        paidAmount: nextPaidAmount,
-        isPaid: isMoneyPaid(nextPaidAmount, split.amount),
-        paidAt: safePaidAt,
-      },
-    })
   }
 
   await redistributeAccountCredit(account)

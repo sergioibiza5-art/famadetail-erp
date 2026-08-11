@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
   formatMoney,
+  normalizeAllFinancialSplitAmounts,
   payWorkerAccount,
   redistributeAccountCredit,
   roundMoney,
@@ -61,6 +62,8 @@ async function recalculateFinance() {
   "use server"
 
   await requireAdmin()
+
+  await normalizeAllFinancialSplitAmounts()
 
   await Promise.all(
     Object.values(WorkerAccount).map((account) =>
