@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react"
+import { activeFinancialSplitWhere, activePaymentMovementWhere } from "@/lib/finance"
 import { getProductStockValue } from "@/lib/product-stock"
 import { prisma } from "@/lib/prisma"
 
@@ -135,11 +136,13 @@ export default async function AnalyticsPage() {
         },
       }),
       prisma.paymentMovement.findMany({
+        where: activePaymentMovementWhere(),
         orderBy: {
           paidAt: "desc",
         },
       }),
       prisma.financialSplit.findMany({
+        where: activeFinancialSplitWhere(),
         select: {
           amount: true,
         },

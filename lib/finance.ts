@@ -14,6 +14,41 @@ export function accountLabel(account: WorkerAccount) {
   }
 }
 
+export const FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL = "05/08/2026"
+export const FINANCE_MOVEMENT_START_DATE = new Date("2026-08-05T23:00:00.000Z")
+
+export function activePaymentMovementWhere(account?: WorkerAccount | null) {
+  return {
+    ...(account ? { account } : {}),
+    paidAt: {
+      gte: FINANCE_MOVEMENT_START_DATE,
+    },
+    NOT: [
+      {
+        notes: {
+          startsWith: "Correção:",
+        },
+      },
+      {
+        notes: {
+          startsWith: "Anulação:",
+        },
+      },
+    ],
+  }
+}
+
+export function activeFinancialSplitWhere(account?: WorkerAccount | null) {
+  return {
+    ...(account ? { account } : {}),
+    appointment: {
+      date: {
+        gte: FINANCE_MOVEMENT_START_DATE,
+      },
+    },
+  }
+}
+
 export function getPaidAmount(split: {
   paidAmount: number
   isPaid: boolean
@@ -85,7 +120,7 @@ export function getPaymentState(split: {
 
 export async function redistributeAccountCredit(account: WorkerAccount) {
   const splits = await prisma.financialSplit.findMany({
-    where: { account },
+    where: activeFinancialSplitWhere(account),
     include: {
       appointment: {
         select: {
@@ -106,7 +141,7 @@ export async function redistributeAccountCredit(account: WorkerAccount) {
   })
 
   const movements = await prisma.paymentMovement.findMany({
-    where: { account },
+    where: activePaymentMovementWhere(account),
     select: {
       amount: true,
     },
@@ -140,6 +175,11 @@ export async function redistributeAccountCredit(account: WorkerAccount) {
 
 export async function normalizeAllFinancialSplitAmounts() {
   const appointments = await prisma.appointment.findMany({
+    where: {
+      date: {
+        gte: FINANCE_MOVEMENT_START_DATE,
+      },
+    },
     include: {
       serviceTemplate: {
         select: {
@@ -209,7 +249,7 @@ export async function payWorkerAccount({
   await redistributeAccountCredit(account)
 
   const splits = await prisma.financialSplit.findMany({
-    where: { account },
+    where: activeFinancialSplitWhere(account),
     include: {
       appointment: {
         select: {

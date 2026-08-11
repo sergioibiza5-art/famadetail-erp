@@ -4,7 +4,14 @@ import { revalidatePath } from "next/cache"
 import { CalendarDays, CheckCircle, Download, Euro, ListChecks, User, WalletCards } from "lucide-react"
 import { PaymentMethod, WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { accountLabel, payWorkerAccount, roundMoney } from "@/lib/finance"
+import {
+  FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL,
+  accountLabel,
+  activeFinancialSplitWhere,
+  activePaymentMovementWhere,
+  payWorkerAccount,
+  roundMoney,
+} from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -55,6 +62,7 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
   const [splits, paymentMovements] = await Promise.all([
     prisma.financialSplit.findMany({
       where: {
+        ...activeFinancialSplitWhere(),
         OR: [
           {
             amount: {
@@ -83,7 +91,9 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
         },
       },
     }),
-    prisma.paymentMovement.findMany(),
+    prisma.paymentMovement.findMany({
+      where: activePaymentMovementWhere(),
+    }),
   ])
 
   const totals = Object.values(WorkerAccount).map((account) => {
@@ -203,6 +213,11 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
           </p>
         </div>
       )}
+
+      <div className="mb-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-300">
+        Movimentos até {FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL} estão guardados como
+        histórico, mas não entram nestas contas.
+      </div>
 
       {params?.saved && (
         <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">

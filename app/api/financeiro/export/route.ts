@@ -1,7 +1,13 @@
 import { NextRequest } from "next/server"
 import { WorkerAccount } from "@prisma/client"
 import { requireAdmin } from "@/lib/auth"
-import { formatMoney, getPaidAmount, missingMoney } from "@/lib/finance"
+import {
+  activePaymentMovementWhere,
+  activeFinancialSplitWhere,
+  formatMoney,
+  getPaidAmount,
+  missingMoney,
+} from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 function csvCell(value: string | number | null | undefined) {
@@ -32,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   const [splits, movements] = await Promise.all([
     prisma.financialSplit.findMany({
-      where: account ? { account } : undefined,
+      where: activeFinancialSplitWhere(account),
       include: {
         appointment: {
           include: {
@@ -49,7 +55,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.paymentMovement.findMany({
-      where: account ? { account } : undefined,
+      where: activePaymentMovementWhere(account),
       include: {
         allocations: {
           include: {

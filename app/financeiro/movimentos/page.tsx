@@ -8,6 +8,9 @@ import { ConfirmSubmitButton } from "@/components/confirm-submit-button"
 import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
+  activeFinancialSplitWhere,
+  activePaymentMovementWhere,
+  FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL,
   formatMoney,
   getPaidAmount,
   missingMoney,
@@ -146,7 +149,7 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
 
   const [movements, splits] = await Promise.all([
     prisma.paymentMovement.findMany({
-      where: account ? { account } : undefined,
+      where: activePaymentMovementWhere(account),
       include: {
         allocations: {
           include: {
@@ -168,7 +171,10 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
       orderBy: { paidAt: "desc" },
     }),
     prisma.financialSplit.findMany({
-      where: account ? { account, amount: { gt: 0 } } : { amount: { gt: 0 } },
+      where: {
+        ...activeFinancialSplitWhere(account),
+        amount: { gt: 0 },
+      },
       include: {
         appointment: {
           include: {
@@ -266,6 +272,12 @@ export default async function PaymentMovementsPage({ searchParams }: Props) {
           </p>
         </div>
       )}
+
+      <div className="mb-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-300">
+        A mostrar apenas movimentos depois de {FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL}.
+        O que ficou até essa data mantém-se guardado como histórico, mas não entra
+        nas contas atuais.
+      </div>
 
       <div className="mb-4 overflow-hidden rounded-3xl border border-amber-400/20 bg-amber-500/5">
         <div className="border-b border-amber-400/20 p-4 sm:p-5">

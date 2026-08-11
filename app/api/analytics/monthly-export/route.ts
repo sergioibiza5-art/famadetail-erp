@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server"
 import { requireAdmin } from "@/lib/auth"
-import { formatMoney } from "@/lib/finance"
+import { FINANCE_MOVEMENT_START_DATE, formatMoney } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 function csvCell(value: string | number | null | undefined) {
@@ -21,11 +21,13 @@ export async function GET(request: NextRequest) {
   await requireAdmin()
 
   const { start, end } = monthRange(request)
+  const activeStart =
+    start > FINANCE_MOVEMENT_START_DATE ? start : FINANCE_MOVEMENT_START_DATE
   const [appointments, movements, expenses] = await Promise.all([
     prisma.appointment.findMany({
       where: {
         date: {
-          gte: start,
+          gte: activeStart,
           lt: end,
         },
       },
@@ -39,7 +41,7 @@ export async function GET(request: NextRequest) {
     prisma.paymentMovement.findMany({
       where: {
         paidAt: {
-          gte: start,
+          gte: activeStart,
           lt: end,
         },
       },

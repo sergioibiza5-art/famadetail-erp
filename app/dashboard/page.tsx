@@ -11,6 +11,7 @@ import {
   Users,
   Wrench,
 } from "lucide-react"
+import { activeFinancialSplitWhere, activePaymentMovementWhere } from "@/lib/finance"
 import { prisma } from "@/lib/prisma"
 
 export const dynamic = "force-dynamic"
@@ -208,11 +209,13 @@ export default async function DashboardPage() {
       },
     }),
     prisma.financialSplit.findMany({
+      where: activeFinancialSplitWhere(),
       select: {
         amount: true,
       },
     }),
     prisma.paymentMovement.findMany({
+      where: activePaymentMovementWhere(),
       select: {
         amount: true,
       },

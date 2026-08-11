@@ -6,7 +6,10 @@ import { ArrowLeft, CalendarDays, CheckCircle, Download, Euro, User, WalletCards
 import { requireAdmin } from "@/lib/auth"
 import {
   accountLabel,
+  activeFinancialSplitWhere,
+  activePaymentMovementWhere,
   creditMoney,
+  FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL,
   formatMoney,
   getPaidAmount,
   getPaymentState,
@@ -69,7 +72,7 @@ export default async function FinanceAccountPage({ params, searchParams }: Props
   const [splits, paymentMovements] = await Promise.all([
     prisma.financialSplit.findMany({
       where: {
-        account,
+        ...activeFinancialSplitWhere(account),
         OR: [
           {
             amount: {
@@ -99,7 +102,7 @@ export default async function FinanceAccountPage({ params, searchParams }: Props
       },
     }),
     prisma.paymentMovement.findMany({
-      where: { account },
+      where: activePaymentMovementWhere(account),
       include: {
         allocations: {
           include: {
@@ -168,6 +171,11 @@ export default async function FinanceAccountPage({ params, searchParams }: Props
           </div>
         </div>
       )}
+
+      <div className="mb-4 rounded-3xl border border-white/10 bg-white/[0.03] p-4 text-sm text-zinc-300">
+        Movimentos até {FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL} ficam como histórico
+        e não contam para esta conta.
+      </div>
 
       <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
