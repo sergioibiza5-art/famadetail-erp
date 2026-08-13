@@ -62,6 +62,13 @@ function formatTime(value: Date) {
   }).format(value)
 }
 
+function toDateTimeLocalValue(value: Date | null) {
+  if (!value) return ""
+
+  const localDate = new Date(value.getTime() - value.getTimezoneOffset() * 60000)
+  return localDate.toISOString().slice(0, 16)
+}
+
 function formatMoney(value: number) {
   return new Intl.NumberFormat("pt-PT", {
     style: "currency",
@@ -256,12 +263,17 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
         ? "Percentagens guardadas e valores atualizados."
         : feedback?.saved === "appointment"
           ? "Cliente e carro guardados no agendamento."
-          : feedback?.saved === "notification"
-            ? "Aviso enviado ao cliente."
-            : feedback?.saved === "finance-error"
-              ? "Percentagens nao guardadas. O total tem de ser 100%."
-              : null
-  const savedIsError = feedback?.saved === "finance-error"
+          : feedback?.saved === "schedule"
+            ? "Datas da OS guardadas."
+            : feedback?.saved === "notification"
+              ? "Aviso enviado ao cliente."
+              : feedback?.saved === "schedule-error"
+                ? "Datas nao guardadas. A conclusao tem de ser depois do inicio."
+                : feedback?.saved === "finance-error"
+                  ? "Percentagens nao guardadas. O total tem de ser 100%."
+                  : null
+  const savedIsError =
+    feedback?.saved === "finance-error" || feedback?.saved === "schedule-error"
 
   const appointment = await prisma.appointment.findUnique({
     where: { id },
@@ -344,6 +356,97 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
     revalidatePath("/dashboard")
 
     redirect(`/agenda/${id}?saved=payment`)
+  }
+
+  async function updateAppointmentSchedule(formData: FormData) {
+    "use server"
+
+    await requireAdmin()
+
+    const startValue = String(formData.get("startDate") || "")
+    const endValue = String(formData.get("endDate") || "")
+    const startDate = new Date(startValue)
+    const endDate = new Date(endValue)
+
+    if (
+      !startValue ||
+      !endValue ||
+      Number.isNaN(startDate.getTime()) ||
+      Number.isNaN(endDate.getTime()) ||
+      endDate <= startDate
+    ) {
+      redirect(`/agenda/${id}?saved=schedule-error`)
+    }
+
+    const targetAppointments = await prisma.appointment.findMany({
+      where: appointmentGroupId ? { groupId: appointmentGroupId } : { id },
+      orderBy: { date: "asc" },
+      select: {
+        id: true,
+        date: true,
+        endDate: true,
+        serviceTemplate: {
+          select: {
+            durationMinutes: true,
+          },
+        },
+      },
+    })
+
+    if (targetAppointments.length === 0) return
+
+    if (targetAppointments.length === 1) {
+      await prisma.appointment.update({
+        where: { id: targetAppointments[0].id },
+        data: {
+          date: startDate,
+          endDate,
+        },
+      })
+    } else {
+      const totalAvailableMs = endDate.getTime() - startDate.getTime()
+      const durations = targetAppointments.map((item) => {
+        const currentDurationMs =
+          item.endDate && item.endDate > item.date
+            ? item.endDate.getTime() - item.date.getTime()
+            : (item.serviceTemplate?.durationMinutes || 60) * 60000
+
+        return Math.max(60000, currentDurationMs)
+      })
+      const totalDurationMs = durations.reduce((sum, duration) => sum + duration, 0)
+      let cursor = new Date(startDate)
+
+      await prisma.$transaction(
+        targetAppointments.map((item, index) => {
+          const isLast = index === targetAppointments.length - 1
+          const nextEndDate = isLast
+            ? new Date(endDate)
+            : new Date(
+                cursor.getTime() +
+                  Math.round((durations[index] / totalDurationMs) * totalAvailableMs)
+              )
+          const nextStartDate = new Date(cursor)
+          cursor = nextEndDate
+
+          return prisma.appointment.update({
+            where: { id: item.id },
+            data: {
+              date: nextStartDate,
+              endDate: nextEndDate,
+            },
+          })
+        })
+      )
+    }
+
+    revalidatePath("/agenda")
+    revalidatePath(`/agenda/${id}`)
+    revalidatePath("/dashboard")
+    revalidatePath("/financeiro")
+    revalidatePath("/analytics")
+    revalidatePath("/marcar")
+
+    redirect(`/agenda/${id}?saved=schedule`)
   }
 
   async function updateWorkersAndFinance(formData: FormData) {
@@ -906,6 +1009,46 @@ export default async function AppointmentDetailPage({ params, searchParams }: Pr
                   {appointment.endDate ? formatDate(appointment.endDate) : "Sem fim"}
                 </p>
               </div>
+              <form
+                action={updateAppointmentSchedule}
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+              >
+                <p className="text-xs uppercase tracking-wider text-zinc-500">
+                  Editar datas da OS
+                </p>
+                <div className="mt-3 grid gap-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Inicio
+                    <input
+                      name="startDate"
+                      type="datetime-local"
+                      required
+                      defaultValue={toDateTimeLocalValue(groupedAppointments[0]?.date || appointment.date)}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                    />
+                  </label>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                    Conclusao
+                    <input
+                      name="endDate"
+                      type="datetime-local"
+                      required
+                      defaultValue={toDateTimeLocalValue(
+                        groupedAppointments[groupedAppointments.length - 1]?.endDate ||
+                          appointment.endDate
+                      )}
+                      className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-white outline-none focus:border-red-300/60"
+                    />
+                  </label>
+                </div>
+                <SaveSubmitButton
+                  className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-zinc-100 px-4 py-3 text-xs font-black text-black transition hover:bg-white disabled:cursor-wait disabled:opacity-70"
+                  pendingText="A guardar datas..."
+                >
+                  <Save className="h-4 w-4" />
+                  Guardar datas
+                </SaveSubmitButton>
+              </form>
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                   <p className="flex items-center gap-2 text-xs uppercase tracking-wider text-zinc-500">

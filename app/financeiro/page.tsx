@@ -122,6 +122,46 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
   const totalPending = totals.reduce((sum, item) => roundMoney(sum + item.pending), 0)
   const totalCredit = totals.reduce((sum, item) => roundMoney(sum + item.credit), 0)
   const netBalance = roundMoney(Math.max(0, totalPending - totalCredit))
+  const openServiceMap = new Map<
+    string,
+    {
+      customerName: string
+      missing: number
+      orderNumber: string | null
+      paid: number
+      serviceName: string
+      total: number
+      vehiclePlate: string | null
+    }
+  >()
+
+  for (const split of splits) {
+    const paid = Math.min(split.paidAmount || 0, split.amount)
+    const current = openServiceMap.get(split.appointmentId) || {
+      customerName: split.appointment.customer.name,
+      missing: 0,
+      orderNumber: split.appointment.orderNumber,
+      paid: 0,
+      serviceName: split.appointment.serviceTemplate?.name || split.appointment.title,
+      total: 0,
+      vehiclePlate: split.appointment.vehicle.plate,
+    }
+
+    current.total = roundMoney(current.total + split.amount)
+    current.paid = roundMoney(current.paid + paid)
+    current.missing = roundMoney(current.missing + Math.max(0, split.amount - paid))
+    openServiceMap.set(split.appointmentId, current)
+  }
+
+  const openServices = [...openServiceMap.values()].filter((item) => item.missing > 0)
+  const openServicesTotal = openServices.reduce(
+    (sum, item) => roundMoney(sum + item.total),
+    0
+  )
+  const openServicesPaid = openServices.reduce(
+    (sum, item) => roundMoney(sum + item.paid),
+    0
+  )
 
   const summaryCards = [
     {
@@ -218,6 +258,77 @@ export default async function FinancePage({ searchParams }: FinancePageProps) {
         Movimentos até {FINANCE_MOVEMENT_IGNORE_UNTIL_LABEL} estão guardados como
         histórico, mas não entram nestas contas.
       </div>
+
+      {openServices.length > 0 && (
+        <div className="mb-4 overflow-hidden rounded-3xl border border-amber-400/20 bg-amber-500/5">
+          <div className="border-b border-amber-400/20 p-4 sm:p-5">
+            <h2 className="text-lg font-semibold">
+              Porque aparece {formatMoney(totalPending)}?
+            </h2>
+            <p className="text-sm text-zinc-400">
+              O valor em falta e calculado pelas parcelas das contas, nao pelo
+              preco cheio do servico.
+            </p>
+          </div>
+          <div className="grid gap-3 p-4 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+              <p className="text-sm text-zinc-400">Servicos em aberto</p>
+              <p className="mt-2 text-2xl font-bold text-white">
+                {formatMoney(openServicesTotal)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4">
+              <p className="text-sm text-emerald-100/70">Ja abatido as contas</p>
+              <p className="mt-2 text-2xl font-bold text-emerald-100">
+                {formatMoney(openServicesPaid)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4">
+              <p className="text-sm text-amber-100/70">Falta pagar as contas</p>
+              <p className="mt-2 text-2xl font-bold text-amber-100">
+                {formatMoney(totalPending)}
+              </p>
+            </div>
+          </div>
+          <div className="divide-y divide-amber-400/10">
+            {openServices.map((item) => (
+              <div
+                key={item.orderNumber || item.serviceName}
+                className="grid gap-3 p-4 text-sm lg:grid-cols-[150px_1fr_120px_120px_120px] lg:items-center"
+              >
+                <div>
+                  <p className="text-xs uppercase tracking-wider text-zinc-500">OS</p>
+                  <p className="mt-1 font-semibold text-white">
+                    {item.orderNumber || "Sem OS"}
+                  </p>
+                </div>
+                <div>
+                  <p className="font-semibold text-white">{item.serviceName}</p>
+                  <p className="mt-1 text-zinc-400">
+                    {item.customerName} - {item.vehiclePlate || "Sem matricula"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">Servico</p>
+                  <p className="font-semibold text-white">{formatMoney(item.total)}</p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">Abatido</p>
+                  <p className="font-semibold text-emerald-300">
+                    {formatMoney(item.paid)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-zinc-500">Falta</p>
+                  <p className="font-semibold text-amber-100">
+                    {formatMoney(item.missing)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {params?.saved && (
         <div className="mb-4 rounded-3xl border border-emerald-400/25 bg-emerald-500/10 p-4 text-sm text-emerald-100">
